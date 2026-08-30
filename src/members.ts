@@ -159,7 +159,6 @@ export async function handleLeaveList(request: Request, env: Env, listId: string
       //    Selbes Muster wie in handleTransferOwner – dort mit expliziter Ziel-ID.
       env.DB.prepare(`UPDATE lists SET owner_id = ${SUCCESSOR_SUBQUERY} WHERE id = ?`).bind(
         listId,
-        listId,
         user.id,
         listId
       ),
