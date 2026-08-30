@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Buylist – Gemeinsame Einkaufslisten</title>
+    <meta name="description" content="Geteilte Einkaufslisten in Echtzeit – für WG und Familie." />
+    <meta name="theme-color" content="#f7f3ea" />
+    <meta name="color-scheme" content="light" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div id="app" class="container"></div>
+    <nav class="bottom-nav" hidden aria-label="Hauptnavigation">
+      <a data-link href="/" class="bottom-nav-item">
+        <span class="bottom-nav-icon" aria-hidden="true">🛒</span>
+        <span class="bottom-nav-label">Listen</span>
+      </a>
+      <a data-link href="/rezepte" class="bottom-nav-item">
+        <span class="bottom-nav-icon" aria-hidden="true">📖</span>
+        <span class="bottom-nav-label">Rezepte</span>
+      </a>
+      <a data-link href="/profil" class="bottom-nav-item">
+        <span class="bottom-nav-icon" aria-hidden="true">👤</span>
+        <span class="bottom-nav-label">Profil</span>
+      </a>
+    </nav>
+  </body>
+</html>

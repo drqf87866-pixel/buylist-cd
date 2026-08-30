@@ -1,0 +1,2187 @@
+/* ============================================================
+   Buylist – „Markt & Papier"
+   Mobile-First: base = Handy (eine Hand, Daumen), ≥640px = zentrierte Spalte
+   ============================================================ */
+
+:root {
+  /* Farben */
+  --bg: #f7f3ea;          /* warmes Papier */
+  --surface: #fffdf7;     /* Karten & Zeilen */
+  --ink: #23281f;         /* warmes Near-Black, ~13:1 auf Papier */
+  --leaf: #1e7a46;        /* Akzent: Abhaken, Buttons */
+  --leaf-dark: #155c34;
+  --leaf-soft: #e3efe4;   /* grüne Tönung (Badges, Preview) */
+  --tomato: #c92a2a;      /* ausschließlich Löschen / Fehler */
+  --tomato-dark: #a31f1f;
+  --muted: #6b6a5e;
+  --border: #e6e0d1;
+  --ring: #8f8776;        /* Checkbox-Rahmen (≥3:1 auf Papier) */
+
+  /* Form */
+  --radius: 16px;
+  --radius-sm: 12px;
+  --tap: 48px;
+  --shadow: 0 1px 2px rgba(35, 40, 31, 0.05), 0 4px 14px rgba(35, 40, 31, 0.05);
+
+  /* Typografie */
+  --font-display: ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+/* Sichtbarer Fokus für Tastaturnutzung */
+:focus-visible {
+  outline: 2.5px solid var(--leaf);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* JS hängt Leer-/Fehlerzustände ans hidden-Attribut */
+[hidden] {
+  display: none !important;
+}
+
+.container {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+body.has-addbar .container {
+  /* Platz für die fixierte Add-Bar unten */
+  padding-bottom: 158px;
+}
+
+/* ---------- Buttons & Eingaben ---------- */
+
+.btn {
+  min-height: var(--tap);
+  padding: 10px 18px;
+  border: none;
+  border-radius: 14px;
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+  transition: transform 0.1s ease, background-color 0.15s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn.primary {
+  background: var(--leaf);
+  color: #fff;
+}
+
+.btn.primary:hover {
+  background: var(--leaf-dark);
+}
+
+.btn.primary:disabled {
+  opacity: 0.55;
+  transform: none;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  min-height: 44px;
+}
+
+.btn.ghost:hover {
+  color: var(--ink);
+}
+
+.input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.input::placeholder {
+  color: #a29a88;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 3px rgba(30, 122, 70, 0.15);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin: 10px 14px 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.error {
+  color: var(--tomato);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.empty {
+  text-align: center;
+  padding: 18px 14px;
+}
+
+.section-title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 22px 18px 6px;
+}
+
+/* ---------- Topbar ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(247, 243, 234, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top);
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+}
+
+.topbar-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.12rem;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.icon-btn {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 1.35rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.icon-btn:active {
+  background: rgba(35, 40, 31, 0.07);
+}
+
+.logout-btn {
+  min-height: 44px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+}
+
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Fortschritt */
+.progress {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--leaf);
+  transition: width 0.35s ease;
+}
+
+.progress-text {
+  flex: none;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* Verbindungsstatus */
+.status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d99a26;
+}
+
+.status-dot.open {
+  background: var(--leaf);
+}
+
+.status-dot.connecting,
+.status-dot.reconnecting {
+  background: var(--tomato);
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Listen-Chip (Listen-Switcher) */
+.list-chip {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.12rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.list-chip:active {
+  background: rgba(35, 40, 31, 0.07);
+}
+
+.list-chip-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-chip-caret {
+  flex: none;
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+/* ---------- Auth / Join / 404 ---------- */
+
+.auth-wrap {
+  max-width: 420px;
+  width: 100%;
+  margin: 7vh auto 0;
+  padding: 0 18px 40px;
+  display: flex;
+  flex-direction: column;
+}
+
+.logo {
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+  margin: 16px 0 4px;
+}
+
+.subtitle {
+  text-align: center;
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+.tabs {
+  display: flex;
+  background: #ece5d3;
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  margin-bottom: 14px;
+}
+
+.tabs a {
+  flex: 1;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  text-decoration: none;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.tabs a.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(35, 40, 31, 0.12);
+}
+
+/* ---------- Listen-Übersicht ---------- */
+
+.greeting {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  margin: 20px 18px 2px;
+}
+
+.list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 14px 0;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  text-decoration: none;
+  color: inherit;
+}
+
+.list-row:active {
+  background: #f6f0e3;
+}
+
+.list-row-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--leaf-soft);
+  border-radius: 12px;
+  font-size: 1.15rem;
+}
+
+.list-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.list-row-name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-row-sub {
+  font-size: 0.78rem;
+}
+
+.chevron {
+  flex: none;
+  color: var(--muted);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+/* ---------- Artikelliste: Swipe-Zellen ---------- */
+
+.items {
+  list-style: none;
+  margin: 14px 14px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.swipe-cell {
+  position: relative;
+  border-radius: 14px;
+}
+
+.swipe-action {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 88px;
+  display: flex;
+  border-radius: 14px;
+  overflow: hidden;
+  visibility: hidden; /* erst bei offengeschobener Zeile (.swiped) */
+}
+
+.swipe-cell.swiped .swipe-action {
+  visibility: visible;
+}
+
+.swipe-delete {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: none;
+  background: var(--tomato);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.swipe-delete .del-icon {
+  font-size: 1.2rem;
+}
+
+.swipe-delete.armed {
+  background: var(--tomato-dark);
+}
+
+.swipe-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 62px;
+  padding: 7px 6px 7px 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  transition: transform 0.2s ease, opacity 0.17s ease;
+  touch-action: pan-y; /* vertikal scrollt die Liste, horizontal gehört dem Swipe */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.swipe-content.dragging {
+  transition: none;
+}
+
+/* Desktop: Papierkorb am Zeilenende bei Hover; Tastatur holt ihn per Fokus */
+.delete-btn {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 1.05rem;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+@media (hover: hover) {
+  .swipe-content:hover .delete-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.delete-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.delete-btn.armed {
+  opacity: 1;
+  pointer-events: auto;
+  min-width: 44px;
+  padding: 0 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--tomato);
+  background: #f6e3df;
+}
+
+/* Zeileninhalt */
+.item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.item-name {
+  font-weight: 600;
+  font-size: 1.02rem;
+  position: relative;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* Der „Stift-Strich": nur bei erledigt; animiert nur beim frischen Abhaken */
+.swipe-cell.done .item-name::after {
+  content: "";
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: 54%;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+  transform: scaleX(1);
+  transform-origin: left center;
+}
+
+.swipe-cell.just-done .item-name::after {
+  animation: strike 0.32s ease-out backwards;
+}
+
+@keyframes strike {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.item-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Erledigt: gedämpfte Farben statt Transparenz (darunterliegende
+   Löschen-Fläche dürfte nicht durchscheinen), rutscht in die Erledigt-Gruppe */
+.swipe-cell.done .swipe-content {
+  background: #f4eede;
+}
+
+.swipe-cell.done .item-name {
+  color: var(--muted);
+}
+
+.swipe-cell.done .item-meta {
+  color: #9a937f;
+}
+
+.swipe-cell.pending .swipe-content {
+  border-style: dashed;
+}
+
+/* Frisches Abhaken: sanftes Settle der Zeile */
+.swipe-cell.pop-settle .swipe-content {
+  animation: settle 0.28s ease;
+}
+
+@keyframes settle {
+    40% {
+        transform: scale(0.982);
+    }
+}
+
+/* Löschen: Zeile gleicht kurz weg, dann übernimmt refresh() */
+.swipe-cell.removing {
+  animation: cell-remove 0.17s ease forwards;
+}
+
+@keyframes cell-remove {
+  to {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+}
+
+/* ---------- Checkbox (Signature-Element) ---------- */
+
+.checkbox {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  border-radius: 50%;
+}
+
+.checkbox:active .check-svg {
+  transform: scale(0.88);
+}
+
+.check-svg {
+  width: 30px;
+  height: 30px;
+  transform: scale(1);
+  transition: transform 0.12s ease;
+}
+
+.checkbox .ring {
+  fill: var(--surface);
+  stroke: var(--ring);
+  stroke-width: 2.5;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+
+.check-path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 19;
+  stroke-dashoffset: 0;
+}
+
+.checkbox.checked .ring {
+  fill: var(--leaf);
+  stroke: var(--leaf);
+}
+
+/* Häkchen zeichnet sich nur beim frischen Abhaken (.pop), sonst statisch */
+.checkbox.checked .check-path {
+  stroke-dashoffset: 0;
+}
+
+.checkbox.pop .check-path {
+  stroke-dashoffset: 19;
+  animation: draw-check 0.28s ease-out forwards;
+}
+
+@keyframes draw-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Pending: Spinner statt Häkchen */
+.checkbox.pending .ring {
+  stroke: var(--border);
+}
+
+.checkbox.pending::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--leaf);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Kategorie-Abschnitte (rein lesend, feste Markt-Reihenfolge) ---------- */
+
+.cat-divider {
+  list-style: none;
+  padding: 16px 6px 0;
+}
+
+.cat-divider:first-child {
+  padding-top: 2px;
+}
+
+.cat-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* ---------- Erledigt-Trenner ---------- */
+
+.done-divider {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 6px 0;
+}
+
+.done-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.done-clear {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--leaf);
+  cursor: pointer;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+}
+
+.done-clear.armed {
+  color: var(--tomato);
+}
+
+/* ---------- Skeleton beim Laden ---------- */
+
+.skeleton-circle {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin: 0 9px;
+  border-radius: 50%;
+  background: var(--border);
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--border);
+  width: 58%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-line.short {
+  width: 34%;
+}
+
+@keyframes shimmer {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------- Leerzustand ---------- */
+
+.empty-state {
+  text-align: center;
+  padding: 44px 24px 20px;
+}
+
+.empty-icon {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.1rem;
+  background: var(--leaf-soft);
+  border-radius: 50%;
+}
+
+.empty-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+}
+
+.empty-sub {
+  font-size: 0.92rem;
+}
+
+/* ---------- Add-Bar (fixiert unten) ---------- */
+
+.add-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 253, 247, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding: 10px max(12px, calc((100vw - 560px) / 2)) calc(12px + env(safe-area-inset-bottom));
+}
+
+.add-bar .input {
+  min-height: 52px;
+}
+
+.add-bar .menge {
+  flex: 0 0 100px;
+  padding-left: 10px;
+  padding-right: 10px;
+  text-align: center;
+}
+
+.add-btn {
+  flex: 0 0 52px;
+  min-height: 52px;
+  padding: 0;
+  border-radius: 16px;
+  font-size: 1.7rem;
+  font-weight: 600;
+}
+
+/* ---------- Bottom-Nav (Tab-Leiste, fixiert unten) ---------- */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  display: flex;
+  background: rgba(255, 253, 247, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding: 6px max(12px, calc((100vw - 560px) / 2)) max(env(safe-area-inset-bottom), 8px);
+}
+
+.bottom-nav-item {
+  flex: 1;
+  min-height: var(--tap);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.bottom-nav-item:active {
+  background: rgba(35, 40, 31, 0.07);
+}
+
+.bottom-nav-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.bottom-nav-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.bottom-nav-item.active {
+  color: var(--leaf);
+}
+
+body.has-nav .container {
+  /* Platz für die Tab-Leiste unten */
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+/* ---------- Profil-Tab ---------- */
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--leaf-soft);
+  border-radius: 14px;
+  font-size: 1.4rem;
+}
+
+.profile-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.profile-name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.08rem;
+}
+
+.profile-mail {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Essens-Profil (Diätform + Allergene) */
+.prefs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.prefs-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.prefs-label:first-child {
+  margin-top: 0;
+}
+
+.prefs-hint {
+  font-size: 0.8rem;
+}
+
+.prefs-status {
+  margin: 0;
+}
+
+.prefs-ok {
+  color: var(--leaf-dark);
+  font-weight: 600;
+}
+
+.prefs-save {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 20px;
+  margin-top: 4px;
+}
+
+/* Push-Toggle (Profil) */
+.push-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.push-status {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.push-toggle {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.9rem;
+}
+
+.assistant-title {
+  font-weight: 700;
+}
+
+.assistant-tabs {
+  display: flex;
+  background: #ece5d3;
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  gap: 4px;
+}
+
+.assistant-tab {
+  flex: 1;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.assistant-tab.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(35, 40, 31, 0.12);
+}
+
+.assistant-mode[hidden] {
+  display: none;
+}
+
+.zutaten-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zutaten-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.zutaten-chips:empty {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.chip:active {
+  background: var(--leaf-soft);
+}
+
+.chip.on {
+  border-color: #bcd8c2;
+  background: var(--leaf-soft);
+  color: var(--leaf-dark);
+}
+
+.assistant-row {
+  display: flex;
+  gap: 8px;
+}
+
+.assistant-row .gericht {
+  flex: 1;
+  min-width: 0;
+}
+
+.assistant-row .portionen {
+  flex: 0 0 76px;
+  text-align: center;
+}
+
+.assistant-list {
+  width: 100%;
+}
+
+/* Rezepte-Tab: Kartenliste */
+.recent-recipes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recent-recipe-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-recipe-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0;
+}
+
+.recipe-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recipe-card.preview {
+  border-color: #bcd8c2;
+  background: var(--leaf-soft);
+}
+
+.recipe-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+
+.recipe-head .chevron {
+  transition: transform 0.15s ease;
+}
+
+.recipe-head.open .chevron {
+  transform: rotate(90deg);
+}
+
+.recipe-head-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recipe-title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.recipe-sub {
+  font-size: 0.8rem;
+}
+
+.recipe-details {
+  padding-top: 6px;
+}
+
+.recipe-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 12px 0 4px;
+}
+
+.recipe-ingredients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recipe-ingredients li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.95rem;
+}
+
+/* Auswählbare Zutaten-Zeilen (Vorschau / Sheet) */
+.recipe-ingredients.selectable {
+  gap: 2px;
+}
+
+.recipe-ingredients.selectable li {
+  display: block;
+}
+
+.ing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ing-row:active {
+  background: rgba(35, 40, 31, 0.05);
+}
+
+.ing-row-check {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ring);
+  border-radius: 50%;
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  font-size: 0.78rem;
+  font-weight: 800;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.ing-row.on .ing-row-check {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  color: #fff;
+}
+
+.ing-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ing-row:not(.on) .ing-row-name,
+.ing-row:not(.on) .recipe-menge {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.ing-hint {
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+.sheet-pad {
+  padding: 0 20px;
+}
+
+.sheet-actions {
+  display: flex;
+  padding: 14px 20px 2px;
+}
+
+.sheet-actions .btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-actions .btn:disabled {
+  opacity: 0.55;
+}
+
+.recipe-menge {
+  flex: none;
+  color: var(--muted);
+}
+
+.recipe-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.95rem;
+}
+
+.recipe-steps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recipe-timer {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.recipe-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.recipe-actions .recipe-cook {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  padding: 10px 8px;
+  font-size: 0.95rem;
+}
+
+.recipe-actions .recipe-add {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.recipe-del {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1.05rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.recipe-del .del-cap {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.recipe-del.armed {
+  color: var(--tomato);
+  background: #f6e3df;
+  padding: 0 10px;
+}
+
+.list-error {
+  list-style: none;
+}
+
+/* ---------- Bottom-Sheet (Listen-Switcher) ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(35, 40, 31, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.sheet-backdrop.open {
+  opacity: 1;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: 72vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  padding: 10px 0 calc(18px + env(safe-area-inset-bottom));
+  transform: translateY(100%);
+  transition: transform 0.24s ease;
+}
+
+.sheet.open {
+  transform: none;
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  margin: 4px auto 10px;
+}
+
+.sheet-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 2px 20px 10px;
+}
+
+.sheet-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 20px;
+  text-decoration: none;
+  color: inherit;
+  font-weight: 600;
+}
+
+.sheet-row:active {
+  background: var(--bg);
+}
+
+.sheet-row-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-row.current {
+  color: var(--leaf);
+}
+
+.sheet-check {
+  flex: none;
+  color: var(--leaf);
+  font-weight: 800;
+}
+
+.sheet-row-new {
+  color: var(--leaf);
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 10px;
+}
+
+/* ---------- Toast ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(104px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(12px);
+  background: #2b3026;
+  color: #fff;
+  padding: 11px 18px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: 0.25s ease;
+  z-index: 90;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ---------- Verlauf „Zuletzt gekauft“ (Sheet + Fortschritts-Button) ---------- */
+
+.progress-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.progress-btn:active {
+  background: rgba(35, 40, 31, 0.07);
+}
+
+.sheet-sub {
+  padding: 0 20px 12px;
+  font-size: 0.85rem;
+}
+
+.hist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 20px 10px;
+}
+
+.hist-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-height: 48px;
+  max-width: 100%;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hist-chip:active {
+  background: var(--leaf-soft);
+}
+
+.hist-chip-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.hist-chip-sub {
+  font-size: 0.75rem;
+}
+
+.hist-chip.onlist {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hist-chip.added {
+  border-color: #bcd8c2;
+  background: var(--leaf-soft);
+}
+
+.hist-chip.added .hist-chip-sub {
+  color: var(--leaf-dark);
+  font-weight: 700;
+}
+
+/* ---------- Kochmodus (eigene Vollbild-Route) ---------- */
+
+.cook-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 28px;
+}
+
+.cook-main .card {
+  margin: 0;
+  max-width: 100%;
+}
+
+.cook-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cook-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cook-card-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* Portionen-Umschalter in der Zutaten-Karte */
+.cook-portions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cook-portions-label {
+  font-size: 0.78rem;
+  margin-right: 2px;
+}
+
+.cook-portion-btn {
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--leaf-dark);
+  cursor: pointer;
+}
+
+.cook-portion-btn:active {
+  background: var(--leaf-soft);
+}
+
+.cook-portions-val {
+  min-width: 26px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Zutaten-Checkliste */
+.cook-ings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cook-ing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 4px 2px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 1rem;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cook-ing:active {
+  background: rgba(35, 40, 31, 0.05);
+}
+
+.cook-ing-dot {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ring);
+  border-radius: 50%;
+  background: var(--surface);
+  position: relative;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cook-ing.checked .cook-ing-dot {
+  background: var(--leaf);
+  border-color: var(--leaf);
+}
+
+.cook-ing.checked .cook-ing-dot::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.cook-ing-menge {
+  flex: none;
+  min-width: 64px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-ing-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cook-ing.checked .cook-ing-name,
+.cook-ing.checked .cook-ing-menge {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* Aktueller Schritt */
+.cook-step-card {
+  gap: 12px;
+}
+
+.cook-step-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.cook-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.cook-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.cook-dot.active {
+  background: var(--leaf);
+}
+
+.cook-step-text {
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.5;
+  min-height: 96px;
+  overflow-wrap: anywhere;
+}
+
+/* Timer-Chip bzw. Presets */
+.cook-timer-row {
+  display: flex;
+}
+
+.cook-timer {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-timer.running {
+  border-color: #bcd8c2;
+  background: var(--leaf-soft);
+  color: var(--leaf-dark);
+  animation: pulse 1.2s infinite;
+}
+
+.cook-timer.finished {
+  border-color: var(--leaf);
+  background: var(--leaf);
+  color: #fff;
+}
+
+.cook-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cook-presets-label {
+  font-size: 0.85rem;
+  margin-right: 2px;
+}
+
+.cook-preset {
+  min-width: 44px;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.cook-preset:active {
+  background: var(--leaf-soft);
+}
+
+/* Schritt-Navigation */
+.cook-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.cook-nav .cook-advance {
+  flex: 1;
+  min-width: 0;
+}
+
+.cook-nav .cook-back {
+  flex: none;
+}
+
+/* Abschluss-Karte */
+.cook-finish {
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 28px 16px;
+}
+
+.cook-finish-icon {
+  font-size: 2.6rem;
+}
+
+.cook-finish-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+
+.cook-finish .btn {
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* ---------- Desktop (≥640px): dieselbe Spalte, mehr Luft ---------- */
+
+@media (min-width: 640px) {
+  .container {
+    max-width: 600px;
+  }
+
+  .add-bar {
+    padding-left: max(12px, calc((100vw - 600px) / 2));
+    padding-right: max(12px, calc((100vw - 600px) / 2));
+  }
+
+  .items,
+  .list-rows,
+  .card {
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+  }
+
+  .items,
+  .list-rows {
+    padding: 0;
+  }
+
+  .card {
+    max-width: calc(100% - 28px);
+  }
+
+  .section-title,
+  .greeting {
+    max-width: 600px;
+  }
+
+  .swipe-content {
+    min-height: 66px;
+  }
+}
+
+/* ---------- Reduced Motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Wiederkehrende Artikel (Sheet) ---------- */
+
+.sheet-row-action {
+  width: 100%;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Liste löschen (nur Owner, Mitglieder-Sheet) – bewaffneter 2-Tap-Button */
+.del-list-wrap {
+  padding-top: 8px;
+}
+
+.sheet-row-action.del-list {
+  color: var(--tomato);
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+.sheet-row-action.del-list .del-cap {
+  flex: 1;
+  font-weight: 700;
+}
+
+.sheet-row-action.del-list .del-icon {
+  font-size: 1.05rem;
+}
+
+.sheet-row-action.del-list.armed {
+  background: #f6e3df;
+}
+
+.del-list-hint {
+  padding: 8px 20px 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.recurring-row .sheet-row-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recurring-interval {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.recurring-del {
+  flex-shrink: 0;
+  border: 0;
+  background: none;
+  color: var(--muted, #888);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.recurring-del.armed {
+  color: var(--danger, #c0392b);
+  background: rgba(192, 57, 43, 0.1);
+}
+
+.recurring-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.recurring-form-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.recurring-form-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.recurring-form-row .btn {
+  flex-shrink: 0;
+}
+
+.recurring-custom[hidden] {
+  display: none;
+}
+
+.recurring-done {
+  margin-top: 12px;
+}
+
+/* ---------- Mitglieder-Verwaltung (Sheet) ---------- */
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.member-row:last-of-type {
+  border-bottom: none;
+}
+
+.member-row .sheet-row-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.member-sub {
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.member-role {
+  flex: none;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.member-role.owner {
+  color: var(--leaf-dark);
+  background: var(--leaf-soft);
+  border-color: #bcd8c2;
+}
+
+.member-action {
+  flex: none;
+  min-width: 38px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.member-action:active {
+  background: var(--bg);
+}
+
+.member-action.transfer {
+  color: var(--leaf-dark);
+  font-size: 0.75rem;
+}
+
+.sheet-actions .btn:disabled {
+  opacity: 0.55;
+}

@@ -1,0 +1,132 @@
+[
+  {
+    "id": "obst-gemuese",
+    "label": "Obst & Gemüse",
+    "keywords": [
+      "apfel", "äpfel", "banane", "birne", "orange", "mandarine", "clementine",
+      "zitrone", "limette", "grapefruit", "pfirsich", "nektarine", "aprikose",
+      "pflaume", "zwetschge", "kirsche", "erdbeere", "himbeere", "brombeere",
+      "heidelbeere", "blaubeere", "johannisbeere", "stachelbeere", "preiselbeere",
+      "melone", "wassermelone", "honigmelone", "mango", "ananas", "kiwi",
+      "granatapfel", "avokado", "trauben", "papaya", "litschi", "maracuja",
+      "feige", "obst", "tomate", "gurke", "salat", "kopfsalat", "eisberg",
+      "rucola", "feldsalat", "karotte", "möhre", "kartoffel", "süßkartoffel",
+      "zwiebel", "knoblauch", "lauch", "porree", "sellerie", "blumenkohl",
+      "brokkoli", "romanesco", "kohl", "rotkohl", "wirsing", "spitzkohl",
+      "chinakohl", "grünkohl", "rosenkohl", "spinat", "mangold", "rhabarber",
+      "paprika", "zucchini", "aubergine", "kürbis", "radieschen", "rettich",
+      "rote bete", "spargel", "bohne", "erbse", "mais", "champignon", "pilze",
+      "kräuter", "petersilie", "basilikum", "schnittlauch", "koriander", "dill",
+      "minze", "ingwer", "fenchel", "pak choi", "oliven", "gemüse"
+    ]
+  },
+  {
+    "id": "brot-backwaren",
+    "label": "Brot & Backwaren",
+    "keywords": [
+      "brot", "brötchen", "semmel", "baguette", "ciabatta", "toast", "brezel",
+      "laugen", "croissant", "bagel", "pita", "fladenbrot", "naan",
+      "knäckebrot", "zwieback", "kuchen", "torte", "pizzateig", "blätterteig",
+      "hefeteig", "fertigteig", "stuten", "baguettbrötchen"
+    ]
+  },
+  {
+    "id": "molkerei",
+    "label": "Molkerei & Käse",
+    "keywords": [
+      "milch", "butter", "sahne", "fraiche", "schmand", "sauerrahm", "joghurt",
+      "skyr", "quark", "kefir", "käse", "gouda", "edamer",
+      "camembert", "brie", "mozzarella", "feta", "parmesan", "grana padano",
+      "pecorino", "halloumi", "mascarpone", "ricotta", "streichkäse",
+      "frischkäse", "eier", "pudding", "milchreis", "buttermilch", "ayran",
+      "hafermilch", "sojamilch", "mandelmilch", "haferdrink", "sojadrink",
+      "mandeldrink", "pflanzendrink", "kräuterquark", "geschnetzeltes"
+    ]
+  },
+  {
+    "id": "fleisch-fisch",
+    "label": "Fleisch, Wurst & Fisch",
+    "keywords": [
+      "fleisch", "hackfleisch", "hähnchen", "huhn", "hendl", "pute", "rind",
+      "steak", "schwein", "schnitzel", "filet", "braten", "gulasch", "speck",
+      "bacon", "schinken", "wurst", "salami", "lyoner", "leberkäse", "wiener",
+      "frankfurter", "bockwurst", "bratwurst", "frikadelle", "fisch", "lachs",
+      "forelle", "thunfisch", "garnelen", "krabben", "matjes", "hering",
+      "kabeljau", "scampi", "tofu", "veggie", "sojahack", "falafel", "bratling"
+    ]
+  },
+  {
+    "id": "trockenware",
+    "label": "Vorrat & Trockenware",
+    "keywords": [
+      "nudeln", "spaghetti", "penne", "fusilli", "tagliatelle", "lasagne",
+      "macaroni", "reis", "mehl", "backmischung", "zucker", "vanillezucker",
+      "salz", "pfeffer", "gewürz", "paprikapulver", "zimt", "kakaopulver",
+      "backpulver", "hefe", "öl", "olivenöl", "sonnenblumenöl", "rapsöl",
+      "essig", "kondensmilch", "passata", "tomatensauce", "tomatensosse",
+      "tomatenmark", "pesto", "marmelade", "konfitüre", "honig", "nutella",
+      "nussnougat", "erdnussbutter", "brotaufstrich", "müsli", "cornflakes",
+      "haferflocken", "porridge", "couscous", "bulgur", "quinoa", "linsen",
+      "kichererbsen", "brühe", "gemüsebrühe", "suppe", "ravioli", "tortellini",
+      "ketchup", "senf", "mayonnaise", "mayo", "sojasauce", "sriracha",
+      "gewürzgurke", "essiggurke", "rosinen", "trockenobst", "backobst",
+      "datteln", "nüsse", "mandeln", "walnüsse", "haselnüsse", "cashews",
+      "erdnüsse", "nußmischung", "kokosmilch", "sauerkraut",
+      "thunfischdose"
+    ]
+  },
+  {
+    "id": "suesses-snacks",
+    "label": "Süßes & Snacks",
+    "keywords": [
+      "schokolade", "riegel", "gummibärchen", "fruchtgummi", "lakritz",
+      "bonbon", "lutscher", "kekse", "keks", "waffel", "chips", "popcorn",
+      "salzstangen", "erdnussflips", "cracker", "knabber", "kaugummi",
+      "marzipan", "lebkuchen", "stollen", "domino", "snack", "nougat"
+    ]
+  },
+  {
+    "id": "getraenke",
+    "label": "Getränke",
+    "keywords": [
+      "wasser", "mineralwasser", "sprudel", "saft", "apfelsaft",
+      "orangensaft", "multivitamin", "nektar", "schorle", "limonade", "cola",
+      "eistee", "energy", "bier", "pils", "radler", "wein", "prosecco",
+      "sekt", "champagner", "whisky", "wodka", "gin", "rum", "likör", "sirup",
+      "brause", "kaffee", "espresso", "kapseln", "tee", "kakao", "trinken",
+      "tomatensaft"
+    ]
+  },
+  {
+    "id": "tiefkuehl",
+    "label": "Tiefkühl",
+    "keywords": [
+      "tiefkühl", "tk ", "pizza", "eis", "eiscreme", "speiseeis", "pommes",
+      "fischstäbchen", "iglo"
+    ]
+  },
+  {
+    "id": "haushalt",
+    "label": "Haushalt & Drogerie",
+    "keywords": [
+      "toilettenpapier", "klopapier", "küchenrolle", "küchenpapier",
+      "taschentücher", "servietten", "alufolie", "frischhaltefolie",
+      "gefrierbeutel", "müllbeutel", "backpapier", "spülmittel", "tabs",
+      "klarspüler", "reiniger", "wc-", "entkalker", "waschmittel",
+      "weichspüler", "staubsaugerbeutel", "schwamm", "handseife", "seife",
+      "duschgel", "shampoo", "conditioner", "zahnpasta", "zahncreme",
+      "zahnbürste", "mundspülung", "deo", "deodorant", "rasierer",
+      "rasierklingen", "rasierschaum", "bodylotion", "handcreme",
+      "sonnencreme", "insektenschutz", "batterien", "kerzen", "windeln",
+      "feuchttücher", "watte", "korb", "duschbad", "zahnpastanachfüller"
+    ]
+  },
+  {
+    "id": "tier",
+    "label": "Tierbedarf",
+    "keywords": [
+      "katzenfutter", "hundefutter", "katzenstreu", "futter", "leckerli",
+      "leckerlis", "katzenmilch", "tier"
+    ]
+  }
+]

@@ -113,7 +113,7 @@ Die PWA-Icons (`public/icon-192.png`, `public/icon-512.png`) lassen sich per
 
 ```bash
 # 1. D1-Datenbank anlegen
-npx wrangler d1 create buylist-db
+npx wrangler d1 create buylist-cd-db
 
 # 2. Die ausgegebene database_id in wrangler.jsonc eintragen
 #    (ersetzt REPLACE_WITH_YOUR_D1_DATABASE_ID)

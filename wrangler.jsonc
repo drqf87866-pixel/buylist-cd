@@ -1,0 +1,50 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "buylist-cd",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-01",
+	"triggers": {
+		"crons": ["0 5 * * *"]
+	},
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "buylist-cd-db",
+			"database_id": "c511f741-c74c-4d4c-8387-181fdd8b072c"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SHOPPING_LIST_DO",
+				"class_name": "ShoppingListDO"
+			},
+			{
+				"name": "RATE_LIMITER_DO",
+				"class_name": "RateLimiterDO"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"ShoppingListDO"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"RateLimiterDO"
+			]
+		}
+	]
+}
