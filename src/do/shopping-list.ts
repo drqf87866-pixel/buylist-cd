@@ -1,4 +1,4 @@
-import { json } from "../util";
+import { json, normKey } from "../util";
 import { sendPushToUser } from "../push";
 import type { AktivesGericht, Env, HistoryEntry, ItemQuelle, ShoppingItem, ShoppingList } from "../types";
 
@@ -9,11 +9,6 @@ const STORAGE_KEY = "list";
 const CLEANUP_AFTER_MS = 24 * 60 * 60 * 1000;
 const HISTORY_MAX = 100;
 const MENGE_MAX = 80;
-
-/** Normalisierter Vergleichsschlüssel für Duplikate: „  Milch “ == „milch“. */
-function normKey(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
-}
 
 /**
  * Freitext-Mengen anreichern statt überschreiben: „500 g“ + „1 l“ wird

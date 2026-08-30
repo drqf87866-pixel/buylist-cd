@@ -16,6 +16,11 @@ export async function readJson<T>(request: Request): Promise<T | null> {
   }
 }
 
+/** Normalisierter Vergleichsschlüssel für Freitext (Namen, Gerichte, …): „  Milch “ == „milch“. */
+export function normKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 export function getCookie(request: Request, name: string): string | null {
   const header = request.headers.get("cookie");
   if (!header) return null;

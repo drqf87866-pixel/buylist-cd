@@ -1,8 +1,9 @@
 import { withAuth } from "./session";
 import { isMember } from "./lists";
 import { getPreferences, preferencesPrompt } from "./preferences";
-import { json, readJson } from "./util";
-import type { Env, Recipe, RecipeIngredient, RecipeStep } from "./types";
+import { json, readJson, normKey } from "./util";
+import { sha256Base64Url } from "./crypto";
+import type { Env, Recipe, RecipeIngredient, RecipeStep, UserPreferences } from "./types";
 import categoriesJson from "../public/data/categories.json";
 
 /** Kategorie-Ids aus dem Wörterbuch + „sonstiges“ als Auffangkategorie. */
@@ -15,6 +16,11 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 const MAX_ZUTATEN = 50;
 const MAX_SCHRITTE = 30;
 const GEMINI_TIMEOUT_MS = 45_000;
+
+// Cache-Version hochzählen, wenn SYSTEM_ANWEISUNG oder responseSchema in
+// generateRecipe() sich inhaltlich ändern – alte Cache-Einträge werden dann
+// beim nächsten Treffer stillschweigend durch neue ersetzt (kein TTL sonst).
+const CACHE_VERSION = 1;
 
 /** 404 statt 403, damit die Existenz fremder Listen nicht aufscheint. */
 function notFound(): Response {
@@ -186,6 +192,51 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
   return recipe;
 }
 
+// ---------- Gericht-Cache (global, nur Gericht-Modus) ----------
+
+/**
+ * Cache-Key für den globalen Gericht-Cache: Gericht (normalisiert) +
+ * Portionen (exakt, keine Skalierung – Mengen wie „1 Bund“ skalieren nicht
+ * linear) + Diät + sortierte Allergene + CACHE_VERSION, als SHA-256. Nutzt
+ * die strukturierten Präferenz-Felder statt des gerenderten Prompt-Strings,
+ * damit reine Formulierungsänderungen im Prompt den Cache nicht unnötig
+ * invalidieren.
+ */
+async function recipeCacheKey(gericht: string, portionen: number, prefs: UserPreferences): Promise<string> {
+  const allergeneNorm = prefs.allergene.map(normKey).sort();
+  const raw = JSON.stringify({
+    v: CACHE_VERSION,
+    gericht: normKey(gericht),
+    portionen,
+    diaet: normKey(prefs.diaet),
+    allergene: allergeneNorm,
+  });
+  return sha256Base64Url(raw);
+}
+
+async function readRecipeCache(env: Env, key: string): Promise<Recipe | null> {
+  try {
+    const row = await env.DB.prepare("SELECT rezept FROM recipe_cache WHERE cache_key = ?").bind(key).first<{ rezept: string }>();
+    return row ? (JSON.parse(row.rezept) as Recipe) : null;
+  } catch {
+    return null; // Cache-Fehler dürfen die Generierung nie blockieren.
+  }
+}
+
+/** Best-effort: ein fehlgeschlagener Cache-Write darf die Antwort nicht kippen. */
+async function writeRecipeCache(env: Env, key: string, recipe: Recipe): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO recipe_cache (cache_key, rezept, created_at) VALUES (?, ?, ?)
+       ON CONFLICT (cache_key) DO UPDATE SET rezept = excluded.rezept, created_at = excluded.created_at`
+    )
+      .bind(key, JSON.stringify(recipe), Date.now())
+      .run();
+  } catch (err) {
+    console.error("recipe_cache-Schreibfehler:", err);
+  }
+}
+
 /** Fehler mit HTTP-Status und deutscher Nutzermeldung. */
 export class GeminiError extends Error {
   constructor(
@@ -316,10 +367,21 @@ export async function handleGenerate(request: Request, env: Env, listId: string)
     const portionenRaw = typeof body?.portionen === "number" ? Math.round(body.portionen) : 2;
     const portionen = Math.min(12, Math.max(1, portionenRaw || 2));
 
-    const praeferenzen = preferencesPrompt(await getPreferences(env.DB, user.id)) || undefined;
+    const prefs = await getPreferences(env.DB, user.id);
+    const praeferenzen = preferencesPrompt(prefs) || undefined;
 
-    // Freelimit: erst nach allen Prüfungen zählen, damit ungültige Requests
-    // kein Kontingent verbrauchen.
+    // Cache nur im Gericht-Modus (expliziter Gerichtsname) – Resteverwertung
+    // bleibt unverändert immer live generiert, da der Zutaten-Input praktisch
+    // nie identisch zwischen zwei Anfragen ist.
+    let cacheKey: string | null = null;
+    if (gericht) {
+      cacheKey = await recipeCacheKey(gericht, portionen, prefs);
+      const cached = await readRecipeCache(env, cacheKey);
+      if (cached) return json({ rezept: cached });
+    }
+
+    // Freelimit: erst nach allen Prüfungen (inkl. Cache-Miss) zählen, damit
+    // Cache-Treffer und ungültige Requests kein Kontingent verbrauchen.
     const limiter = env.RATE_LIMITER_DO.get(env.RATE_LIMITER_DO.idFromName("gemini"));
     const limitRes = await limiter.fetch("https://rate-limiter/check", { method: "POST" });
     const limit = (await limitRes.json()) as { ok?: boolean; retryAfterSec?: number };
@@ -336,6 +398,7 @@ export async function handleGenerate(request: Request, env: Env, listId: string)
 
     try {
       const rezept = await generateRecipe(env, { gericht, zutaten, portionen, praeferenzen });
+      if (cacheKey) await writeRecipeCache(env, cacheKey, rezept);
       return json({ rezept });
     } catch (err) {
       if (err instanceof GeminiError) return json({ error: err.message }, err.status);
@@ -457,11 +520,6 @@ export async function handleSaveRecipe(request: Request, env: Env, listId: strin
 
 interface ZuschaltenBody {
   gerichte?: unknown;
-}
-
-/** Normalisierter Vergleichsschlüssel für Zutatennamen (wie im DO). */
-function normKey(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**
