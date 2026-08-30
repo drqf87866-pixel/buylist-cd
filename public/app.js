@@ -1177,6 +1177,8 @@
           });
       }
 
+      loadRecipes();
+
       api("/api/lists")
         .then((data) => {
           if (!data.lists.length) {
