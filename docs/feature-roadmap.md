@@ -239,8 +239,29 @@ Die folgenden Vorschläge aus `docs/feature-roadmap.md` sowie dem Analyse-Papier
   App-Shell-Cache; Web Push nativ (VAPID + aes128gcm) mit Benachrichtigungen bei
   Listen-Änderungen (an die übrigen Mitglieder, ohne den Auslöser).
 
+- **Gerichte-Sammlung + Zuschalten** (Analyse-Papier, Meal-Planning-Vorstufe): Der
+  Koch-Assistent legt ein Gericht beim Erstellen **nur in der Sammlung** ab (kein
+  Auto-Push mehr, `handleSaveRecipe`). Die Sammlung umfasst alle Rezepte aus allen
+  eigenen Listen (`GET /api/recipes`); über „🛒 Auf die Liste“ am Gericht wählt man
+  Ziel-Liste und Zutaten. In jeder Einkaufsliste lassen sich Gerichte über den
+  Listen-Wechsler („🥘 Gerichte dazuschalten…“) **zuschalten**: Der Zustand lebt im
+  DO (`ShoppingList.aktiveGerichte`), synchronisiert live an alle Mitglieder und
+  zeigt sich als Chip-Zeile unter der Topbar. Zuschalten legt die Zutaten als Items
+  mit Herkunfts-Tag (`quelle`) an, Abschalten entfernt nur die offenen Zutaten –
+  Gekauftes bleibt im Verlauf. Kein D1-Schema-Umbau (alte DO-Blobs laufen weiter).
+
+- **Tagesvorschläge (Meal-Planning-Vorstufe):** 5 KI-Gerichteideen pro Tag im
+  Rezepte-Tab (Umschalter „✨ Ideen / 📖 Meine Rezepte“). Ein einziger
+  Gemini-Request pro Nutzer/Tag liefert alle 5 Vorschläge (Array-Response-Schema,
+  `src/suggestions.ts`, Tabelle `daily_suggestions`), generiert im täglichen Cron
+  (05:00 UTC) vor und on demand beim ersten Öffnen. „🔄 Neue Vorschläge“ würfelt
+  unbegrenzt neu (jeweils 1 Request); „✨ Rezept erstellen“ übernimmt den Titel in
+  den Koch-Assistenten. Alle Gemini-Pfade teilen sich den globalen
+  Rate-Limiter (12/min, Puffer unter den 15/min des Free-Tiers).
+
 Noch offen aus der Roadmap: grobe Ausgaben-Erfassung (6.1), Magic-Link/OAuth (6.4),
-Dark Mode (6.5), Aufgabenzuweisung, Meal-Planning, Vorratsverwaltung.
+Dark Mode (6.5), Aufgabenzuweisung, Meal-Planning (Ausbaustufe: Wochenplan),
+Vorratsverwaltung.
 
 ---
 

@@ -1195,6 +1195,61 @@ body.has-nav .container {
   width: 100%;
 }
 
+/* ---------- Zugeschaltete Gerichte: Chip-Zeile unter der Topbar ---------- */
+
+.gericht-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 20px 2px;
+  scrollbar-width: none;
+}
+
+.gericht-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.gericht-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid #bcd8c2;
+  border-radius: 999px;
+  background: var(--leaf-soft);
+  color: var(--leaf-dark);
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gericht-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gericht-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(21, 92, 52, 0.14);
+  color: var(--leaf-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* Rezepte-Tab: Kartenliste */
 .recent-recipes {
   display: flex;
@@ -1213,6 +1268,27 @@ body.has-nav .container {
   flex-direction: column;
   gap: 2px;
   padding: 2px 0;
+}
+
+/* Rezepte-Tab: Ansichts-Umschalter + Tagesvorschläge (Ideen) */
+.rezepte-switcher {
+  margin: 10px 14px 0;
+}
+
+.suggestions-date {
+  margin: 16px 18px 0;
+  font-weight: 600;
+}
+
+.suggestions-refresh {
+  margin: 4px 14px 0;
+  width: calc(100% - 28px);
+}
+
+/* KI-Ideen tragen denselben grünen Ton wie die Rezept-Vorschau */
+.suggestion-card {
+  border-color: #bcd8c2;
+  background: var(--leaf-soft);
 }
 
 .recipe-card {
@@ -1550,6 +1626,34 @@ body.has-nav .container {
   flex: none;
   color: var(--leaf);
   font-weight: 800;
+}
+
+/* Gerichte-Sheet: wählbare Zeilen (✓ nur wenn angewählt) + aktive Zeilen
+   mit ✕ zum Abschalten rechts. */
+.sheet-row-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.sheet-row-wrap .sheet-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-row-wrap .gericht-chip-x {
+  margin-right: 16px;
+}
+
+.gerichte-row .sheet-check {
+  visibility: hidden;
+}
+
+.gerichte-row.on .sheet-check {
+  visibility: visible;
+}
+
+.gerichte-row.on {
+  color: var(--leaf-dark);
 }
 
 .sheet-row-new {

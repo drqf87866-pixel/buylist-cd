@@ -4,14 +4,21 @@ import { handleLeaveList, handleGetMembers, handleRemoveMember, handleTransferOw
 import { handleGetPreferences, handleSavePreferences } from "./preferences";
 import { handleSubscribe, handleUnsubscribe, handleVapidKey } from "./push";
 import {
+  handleAbschalten,
   handleAddItems,
   handleDeleteRecipe,
   handleGenerate,
   handleGetAllRecipes,
   handleGetRecipes,
   handleSaveRecipe,
+  handleZuschalten,
 } from "./recipes";
 import { getSessionUser } from "./session";
+import {
+  handleGetSuggestions,
+  handleRefreshSuggestions,
+  runSuggestionsCron,
+} from "./suggestions";
 import {
   handleCreateRecurring,
   handleDeleteRecurring,
@@ -26,8 +33,10 @@ export { RateLimiterDO } from "./do/rate-limiter";
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
-    // Täglicher Lauf: fällige wiederkehrende Items auf die Listen legen
+    // Täglicher Lauf: fällige wiederkehrende Items auf die Listen legen,
+    // danach die 5 Tagesvorschläge pro Nutzer vorgenerieren (rate-limited).
     await runRecurringCron(env);
+    await runSuggestionsCron(env);
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -47,10 +56,11 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-const LIST_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/(snapshot|ws|invite|generate|recipes|items|recurring|members|owner|leave)$/;
+const LIST_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/(snapshot|ws|invite|generate|recipes|items|recurring|members|owner|leave|gerichte)$/;
 const LIST_DELETE_RE = /^\/api\/list\/([A-Za-z0-9-]+)$/;
 const RECIPE_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recipes\/([A-Za-z0-9-]+)$/;
 const RECURRING_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recurring\/([A-Za-z0-9-]+)$/;
+const GERICHTE_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/gerichte\/([A-Za-z0-9-]+)$/;
 
 async function routeApi(request: Request, env: Env, url: URL): Promise<Response> {
   const { pathname } = url;
@@ -73,6 +83,8 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
 
   if (pathname === "/api/join" && method === "POST") return handleJoin(request, env);
   if (pathname === "/api/recipes" && method === "GET") return handleGetAllRecipes(request, env);
+  if (pathname === "/api/suggestions" && method === "GET") return handleGetSuggestions(request, env);
+  if (pathname === "/api/suggestions/refresh" && method === "POST") return handleRefreshSuggestions(request, env);
 
   // Liste löschen: DELETE direkt auf /api/list/:id (ohne Action-Segment)
   const listDeleteMatch = pathname.match(LIST_DELETE_RE);
@@ -88,6 +100,7 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     if (action === "recipes" && method === "GET") return handleGetRecipes(request, env, listId);
     if (action === "recipes" && method === "POST") return handleSaveRecipe(request, env, listId);
     if (action === "items" && method === "POST") return handleAddItems(request, env, listId);
+    if (action === "gerichte" && method === "POST") return handleZuschalten(request, env, listId);
     if (action === "recurring" && method === "GET") return handleGetRecurring(request, env, listId);
     if (action === "recurring" && method === "POST") return handleCreateRecurring(request, env, listId);
     if (action === "members" && method === "GET") return handleGetMembers(request, env, listId);
@@ -100,6 +113,12 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
   if (recurringMatch) {
     const [, listId, ruleId] = recurringMatch;
     if (method === "DELETE") return handleDeleteRecurring(request, env, listId, ruleId);
+  }
+
+  const gerichteMatch = pathname.match(GERICHTE_ROUTE_RE);
+  if (gerichteMatch) {
+    const [, listId, gerichtId] = gerichteMatch;
+    if (method === "DELETE") return handleAbschalten(request, env, listId, gerichtId);
   }
 
   const recipeMatch = pathname.match(RECIPE_ROUTE_RE);

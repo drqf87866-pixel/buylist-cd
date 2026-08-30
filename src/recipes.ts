@@ -71,44 +71,30 @@ function buildUserContent({ gericht, zutaten, portionen, praeferenzen }: Generat
   return parts.join("\n");
 }
 
-async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise<Recipe> {
+interface GeminiCallOptions {
+  systemInstruction: string;
+  userContent: string;
+  responseSchema: unknown;
+  /** Für Fehlermeldungen, z. B. „Rezept-Erstellung“ oder „Vorschlag-Generierung“. */
+  kontext: string;
+}
+
+/**
+ * Generischer Gemini-Aufruf mit JSON-Zwangsantwort (responseMimeType +
+ * responseSchema); liefert den geparsten Antwort-Body. Wirft GeminiError mit
+ * deutscher Nutzermeldung.
+ */
+export async function callGeminiJson(env: Env, options: GeminiCallOptions): Promise<unknown> {
   if (!env.GEMINI_API_KEY) {
     throw new GeminiError(500, "Der Server hat keinen Gemini-API-Key konfiguriert.");
   }
 
   const body = {
-    systemInstruction: { parts: [{ text: SYSTEM_ANWEISUNG }] },
-    contents: [{ role: "user", parts: [{ text: buildUserContent(options) }] }],
+    systemInstruction: { parts: [{ text: options.systemInstruction }] },
+    contents: [{ role: "user", parts: [{ text: options.userContent }] }],
     generationConfig: {
       responseMimeType: "application/json",
-      responseSchema: {
-        type: "OBJECT",
-        properties: {
-          titel: { type: "STRING" },
-          zeit: { type: "STRING" },
-          zutaten: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: {
-                name: { type: "STRING" },
-                menge: { type: "STRING" },
-                kategorie: { type: "STRING", enum: CATEGORY_IDS },
-              },
-              required: ["name"],
-            },
-          },
-          schritte: {
-            type: "ARRAY",
-            items: {
-              type: "OBJECT",
-              properties: { text: { type: "STRING" }, timerSekunden: { type: "INTEGER" } },
-              required: ["text"],
-            },
-          },
-        },
-        required: ["titel", "zutaten", "schritte"],
-      },
+      responseSchema: options.responseSchema,
     },
   };
 
@@ -124,7 +110,7 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
     });
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
-      throw new GeminiError(504, "Die Rezept-Erstellung hat zu lange gedauert. Bitte versuch es nochmal.");
+      throw new GeminiError(504, `Die ${options.kontext} hat zu lange gedauert. Bitte versuch es nochmal.`);
     }
     throw new GeminiError(502, "Der KI-Dienst ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.");
   } finally {
@@ -133,7 +119,7 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
 
   if (!res.ok) {
     console.error("Gemini-Fehler:", res.status, await res.text().catch(() => ""));
-    throw new GeminiError(502, "Die Rezept-Erstellung ist fehlgeschlagen. Bitte versuch es nochmal.");
+    throw new GeminiError(502, `Die ${options.kontext} ist fehlgeschlagen. Bitte versuch es nochmal.`);
   }
 
   let data: GeminiResponse;
@@ -144,19 +130,54 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
   }
 
   if (data.promptFeedback?.blockReason) {
-    throw new GeminiError(400, "Dieses Gericht kann ich leider nicht in ein Rezept umsetzen.");
+    throw new GeminiError(400, "Diese Anfrage kann die KI leider nicht umsetzen.");
   }
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) {
     throw new GeminiError(502, "Die Antwort des KI-Dienstes konnte nicht verarbeitet werden.");
   }
 
-  let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     throw new GeminiError(502, "Die Antwort des KI-Dienstes konnte nicht verarbeitet werden.");
   }
+}
+
+async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise<Recipe> {
+  const raw = await callGeminiJson(env, {
+    systemInstruction: SYSTEM_ANWEISUNG,
+    userContent: buildUserContent(options),
+    responseSchema: {
+      type: "OBJECT",
+      properties: {
+        titel: { type: "STRING" },
+        zeit: { type: "STRING" },
+        zutaten: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              name: { type: "STRING" },
+              menge: { type: "STRING" },
+              kategorie: { type: "STRING", enum: CATEGORY_IDS },
+            },
+            required: ["name"],
+          },
+        },
+        schritte: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: { text: { type: "STRING" }, timerSekunden: { type: "INTEGER" } },
+            required: ["text"],
+          },
+        },
+      },
+      required: ["titel", "zutaten", "schritte"],
+    },
+    kontext: "Rezept-Erstellung",
+  });
 
   const recipe = sanitizeRecipe(raw, options.portionen);
   if (!recipe) {
@@ -406,14 +427,12 @@ interface SaveBody {
   portionen?: unknown;
   zutaten?: unknown;
   schritte?: unknown;
-  /** Nur diese Zutaten (statt aller) auf die Liste legen – z. B. „habe ich schon zu Hause“. */
-  aufListe?: unknown;
 }
 
 /**
- * POST /api/list/:id/recipes – speichert ein Rezept dauerhaft und legt die
- * Zutaten auf die Einkaufsliste (ein Broadcast für alle verbundenen Clients).
- * Wird `aufListe` mitgegeben, landen nur diese Zutaten auf der Liste.
+ * POST /api/list/:id/recipes – speichert ein Rezept in der Gerichte-Sammlung.
+ * Auf eine Einkaufsliste kommt es bewusst erst beim Zuschalten
+ * (POST /api/list/:id/gerichte), nicht mehr automatisch beim Speichern.
  */
 export async function handleSaveRecipe(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
@@ -422,9 +441,6 @@ export async function handleSaveRecipe(request: Request, env: Env, listId: strin
     const body = await readJson<SaveBody>(request);
     const recipe = sanitizeRecipe(body, 2);
     if (!recipe) return json({ error: "Das Rezept ist unvollständig." }, 400);
-
-    const aufListe = sanitizeItems(body?.aufListe);
-    const items = aufListe.length ? aufListe : recipe.zutaten;
 
     const id = crypto.randomUUID();
     const now = Date.now();
@@ -435,23 +451,98 @@ export async function handleSaveRecipe(request: Request, env: Env, listId: strin
       .bind(id, listId, recipe.titel, recipe.zeit ?? null, recipe.portionen, JSON.stringify(recipe.zutaten), JSON.stringify(recipe.schritte), user.id, now)
       .run();
 
-    let added = 0;
-    try {
-      const stub = env.SHOPPING_LIST_DO.get(env.SHOPPING_LIST_DO.idFromName(listId));
-      const doRes = await stub.fetch("https://do/add-items", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ listId, displayName: user.displayName, items }),
-      });
-      if (doRes.ok) {
-        const data = (await doRes.json()) as { added?: number };
-        added = data.added ?? 0;
-      }
-    } catch (err) {
-      console.error("Add-Items fehlgeschlagen:", err);
-    }
+    return json({ rezept: { ...recipe, id, createdAt: now } }, 201);
+  });
+}
 
-    return json({ rezept: { ...recipe, id, createdAt: now }, added }, 201);
+interface ZuschaltenBody {
+  gerichte?: unknown;
+}
+
+/** Normalisierter Vergleichsschlüssel für Zutatennamen (wie im DO). */
+function normKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/**
+ * POST /api/list/:id/gerichte – schaltet gespeicherte Gerichte auf die Liste.
+ * Titel/Portionen/Zutaten kommen serverseitig aus D1; optional schränkt
+ * `nur` (Namen) die Zutaten ein, z. B. „habe ich schon zu Hause“.
+ */
+export async function handleZuschalten(request: Request, env: Env, listId: string): Promise<Response> {
+  return withAuth(request, env.DB, async ({ user }) => {
+    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+
+    const body = await readJson<ZuschaltenBody>(request);
+    const rawList = Array.isArray(body?.gerichte) ? body.gerichte.slice(0, 20) : [];
+    const wuensche: { id: string; nur: Set<string> | null }[] = [];
+    for (const raw of rawList) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const id = (raw as Record<string, unknown>).id;
+      if (typeof id !== "string" || !id) continue;
+      const nurRaw = (raw as Record<string, unknown>).nur;
+      const nur = Array.isArray(nurRaw)
+        ? new Set(nurRaw.filter((n): n is string => typeof n === "string").map(normKey))
+        : null;
+      wuensche.push({ id, nur });
+    }
+    if (!wuensche.length) return json({ error: "Keine Gerichte übergeben." }, 400);
+
+    // Rezepte nur aus Listen, in denen der Nutzer Mitglied ist – und die
+    // Inhaltsstoffe (Titel, Portionen, Zutaten) kommen aus D1, nicht vom Client.
+    const ids = wuensche.map((w) => w.id);
+    const platzhalter = ids.map(() => "?").join(", ");
+    const { results } = await env.DB.prepare(
+      `SELECT r.id, r.titel, r.portionen, r.zutaten
+       FROM recipes r
+       JOIN list_memberships m ON m.list_id = r.list_id AND m.user_id = ?
+       WHERE r.id IN (${platzhalter})`
+    )
+      .bind(user.id, ...ids)
+      .all<{ id: string; titel: string; portionen: number; zutaten: string }>();
+
+    const gefundene = new Map(results.map((row) => [row.id, row]));
+    const gerichte: { id: string; titel: string; portionen: number; zutaten: RecipeIngredient[] }[] = [];
+    for (const wunsch of wuensche) {
+      const row = gefundene.get(wunsch.id);
+      if (!row) continue;
+      const alle = safeParse<RecipeIngredient[]>(row.zutaten, []);
+      const zutaten = wunsch.nur ? alle.filter((z) => wunsch.nur!.has(normKey(z.name))) : alle;
+      gerichte.push({ id: row.id, titel: row.titel, portionen: row.portionen, zutaten });
+    }
+    if (!gerichte.length) return json({ error: "Rezept nicht gefunden." }, 404);
+
+    const stub = env.SHOPPING_LIST_DO.get(env.SHOPPING_LIST_DO.idFromName(listId));
+    const doRes = await stub.fetch("https://do/add-gerichte", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ listId, displayName: user.displayName, gerichte }),
+    });
+    if (!doRes.ok) return json({ error: "Die Gerichte konnten nicht zugeschaltet werden." }, 502);
+
+    const data = (await doRes.json()) as { added?: number };
+    return json({ added: data.added ?? 0 });
+  });
+}
+
+/**
+ * DELETE /api/list/:id/gerichte/:gerichtId – schaltet ein Gericht wieder ab:
+ * der Zustandseintrag verschwindet, offene Zutaten fliegen von der Liste.
+ */
+export async function handleAbschalten(request: Request, env: Env, listId: string, gerichtId: string): Promise<Response> {
+  return withAuth(request, env.DB, async ({ user }) => {
+    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+
+    const stub = env.SHOPPING_LIST_DO.get(env.SHOPPING_LIST_DO.idFromName(listId));
+    const doRes = await stub.fetch("https://do/remove-gericht", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ listId, gerichtId }),
+    });
+    if (!doRes.ok) return json({ error: "Das Gericht konnte nicht ausgeschaltet werden." }, 502);
+
+    const data = (await doRes.json()) as { removed?: number };
+    return json({ ok: true, removed: data.removed ?? 0 });
   });
 }
 

@@ -41,6 +41,26 @@ export interface ShoppingItem {
   timestamp: number;
   /** Zeitpunkt des Abhakens – Basis für „Zuletzt gekauft“ und das Auto-Aufräumen. */
   gekauftAm?: number;
+  /** Herkunft: als Zutat eines zugeschalteten Gerichts auf die Liste gekommen. */
+  quelle?: ItemQuelle;
+}
+
+/** Markiert Items, die beim Zuschalten eines Gerichts auf die Liste kamen. */
+export interface ItemQuelle {
+  typ: "gericht";
+  /** Rezept-Id (D1), über die beim Abschalten alle offenen Zutaten gefunden werden. */
+  id: string;
+  titel: string;
+}
+
+/** Gericht, das aktuell auf einer Liste „zugeschaltet“ ist (Zustand im DO). */
+export interface AktivesGericht {
+  /** Rezept-Id (D1). */
+  id: string;
+  titel: string;
+  portionen: number;
+  hinzugefuegtAm: number;
+  hinzugefuegtVon: string;
 }
 
 /** Verlaufseintrag „Zuletzt gekauft“: ein Kauf genügt, um ihn später mit einem Tap wiederzubestellen. */
@@ -56,6 +76,8 @@ export interface ShoppingList {
   items: ShoppingItem[];
   /** Neueste Käufe zuerst, auf HISTORY_MAX Einträge begrenzt (im DO gepflegt). */
   history?: HistoryEntry[];
+  /** Zugeschaltete Gerichte; fehlt in alten Blobs (= keine). */
+  aktiveGerichte?: AktivesGericht[];
 }
 
 /** Client -> Durable Object */
@@ -104,4 +126,14 @@ export interface Recipe {
   zutaten: RecipeIngredient[];
   schritte: RecipeStep[];
   createdAt?: number;
+}
+
+/**
+ * Ein Tagesvorschlag: leichtgewichtige Gerichts-Idee ohne Rezept. Das volle
+ * Rezept entsteht bei Bedarf über den Koch-Assistenten (POST /api/list/:id/generate).
+ */
+export interface DishSuggestion {
+  titel: string;
+  beschreibung: string;
+  zeit?: string;
 }

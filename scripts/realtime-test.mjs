@@ -281,22 +281,43 @@ assert(
   "Präferenzen lesen (Allergene + Diät)"
 );
 
-// Zutaten-Generierung: ohne Gemini-Key 500, aber Route existiert
+// Zutaten-Generierung: Route muss antworten. Mit konfiguriertem Key kommt 200
+// (Gemini antwortet), ohne Key 500/502, bei Freelimit-Erschöpfung 429.
 const generateIngredients = await api(cookieA, `/api/list/${listId}/generate`, {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ zutaten: ["Milch", "Eier", "Mehl"], portionen: 2 }),
 });
 assert(
-  generateIngredients.status === 500 || generateIngredients.status === 502,
-  `Zutaten-Generate: Route antwortet (${generateIngredients.status}, ohne API-Key erwartet)`
+  [200, 429, 500, 502].includes(generateIngredients.status),
+  `Zutaten-Generate: Route antwortet (${generateIngredients.status})`
 );
 
-// Push: ohne VAPID-Key => configured: false
+// Tagesvorschläge: ohne Session 401; mit Session antwortet die Route (200 mit
+// 5 Gerichten bei konfiguriertem Key, sonst 429/500/502 je nach Key/Limit).
+assert((await api(null, "/api/suggestions")).status === 401, "GET /api/suggestions ohne Session -> 401");
+const suggestionsGet = await api(cookieA, "/api/suggestions");
+assert(
+  [200, 429, 500, 502].includes(suggestionsGet.status),
+  `GET /api/suggestions: Route antwortet (${suggestionsGet.status})`
+);
+if (suggestionsGet.status === 200) {
+  assert(
+    Array.isArray(suggestionsGet.data.vorschlaege) && suggestionsGet.data.vorschlaege.length === 5,
+    "Vorschläge: genau 5 Gerichte"
+  );
+}
+const suggestionsRefresh = await api(cookieA, "/api/suggestions/refresh", { method: "POST" });
+assert(
+  [200, 429, 500, 502].includes(suggestionsRefresh.status),
+  `POST /api/suggestions/refresh: Route antwortet (${suggestionsRefresh.status})`
+);
+
+// Push: Route liefert den Konfigurationsstand (je nach lokalem .dev.vars)
 const vapid = await api(cookieA, "/api/push/vapid-key");
 assert(
-  vapid.status === 200 && vapid.data.configured === false,
-  "VAPID-Key nicht konfiguriert => configured: false"
+  vapid.status === 200 && typeof vapid.data.configured === "boolean",
+  `VAPID-Key-Route antwortet (configured: ${vapid.data?.configured})`
 );
 
 // Owner-Übertragung: B wird Owner, A Member
@@ -311,6 +332,106 @@ assert(
   membersAfter.data.members.some((m) => m.role === "owner" && m.email.includes("bob+")),
   "Nach Übertragung ist B Owner"
 );
+
+console.log("== Gerichte: Sammlung, Zuschalten, Abschalten ==");
+
+const clientGA = connect(cookieA, listId, "A-Gerichte");
+const clientGB = connect(cookieB, listId, "B-Gerichte");
+await Promise.all([waitFor(clientGA.ws, "open"), waitFor(clientGB.ws, "open")]);
+const gInit = await nextSync(clientGA);
+await nextSync(clientGB); // Init-Sync von B abholen, damit die Sync-Folge aligned bleibt
+assert(gInit.items.length === 1 && gInit.items[0].name === "Kaffee", "Gerichte-Setup: 1 offenes Item (Kaffee) aus vorherigem Abschnitt");
+
+// Rezept speichern – landet nur in der Sammlung, nicht auf der Liste
+const saveRes = await api(cookieA, `/api/list/${listId}/recipes`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    titel: "Spaghetti Carbonara",
+    zeit: "ca. 25 Minuten",
+    portionen: 4,
+    zutaten: [
+      { name: "Spaghetti", menge: "500 g" },
+      { name: "Eier", menge: "4" },
+      { name: "Parmesan", menge: "100 g" },
+    ],
+    schritte: [{ text: "Nudeln kochen", timerSekunden: 480 }, "Eier und Parmesan verrühren"],
+  }),
+});
+assert(saveRes.status === 201 && typeof saveRes.data.rezept?.id === "string", "Rezept gespeichert (201, id)");
+assert(saveRes.data.added === undefined, "Speichern pusht nicht mehr auf die Liste (kein added)");
+const gerichtId = saveRes.data.rezept.id;
+
+const sammlung = await api(cookieB, "/api/recipes");
+assert(
+  sammlung.status === 200 && sammlung.data.rezepte.some((r) => r.id === gerichtId),
+  "Gericht erscheint in der Sammlung von B (alle eigenen Listen, unabhängig vom Ersteller)"
+);
+
+const snapAfterSave = await api(cookieA, `/api/list/${listId}/snapshot`);
+assert(snapAfterSave.data.items.length === 1, "Speichern legt keine Artikel auf die Liste");
+
+// Zuschalten durch B (nicht der Ersteller) mit Zutaten-Subset „habe ich schon“
+const zuschaltenBody = {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ gerichte: [{ id: gerichtId, nur: ["Spaghetti", "Eier"] }] }),
+};
+const zuschalten = await api(cookieB, `/api/list/${listId}/gerichte`, zuschaltenBody);
+assert(zuschalten.status === 200 && zuschalten.data.added === 2, "Zuschalten: 2 Zutaten (Subset) als Artikel");
+
+const syncGA1 = await nextSync(clientGA);
+const syncGB1 = await nextSync(clientGB);
+assert(
+  syncGA1.aktiveGerichte?.length === 1 && syncGA1.aktiveGerichte[0].id === gerichtId,
+  "Zuschalten: aktiveGerichte im Live-Sync bei A"
+);
+assert(syncGB1.aktiveGerichte?.length === 1, "Zuschalten: aktiveGerichte im Live-Sync bei B");
+const quelleItems = syncGA1.items.filter((i) => i.quelle?.id === gerichtId);
+assert(
+  quelleItems.length === 2 && quelleItems.every((i) => !i.erledigt && i.quelle.typ === "gericht"),
+  "Zuschalten: Zutaten tragen das quelle-Tag"
+);
+
+// Idempotenz: erneutes Zuschalten ändert nichts
+const nochmal = await api(cookieB, `/api/list/${listId}/gerichte`, zuschaltenBody);
+assert(nochmal.status === 200 && nochmal.data.added === 0, "Erneutes Zuschalten ist idempotent (added 0)");
+const snapIdem = await api(cookieA, `/api/list/${listId}/snapshot`);
+assert(
+  snapIdem.data.items.filter((i) => i.quelle?.id === gerichtId).length === 2 &&
+    snapIdem.data.aktiveGerichte?.length === 1,
+  "Keine doppelten Zutaten/Zustände nach erneutem Zuschalten"
+);
+
+// Duplikat-Merge: „Kaffee“ (von Hand) + Gericht mit „Kaffee“-Zutat würde mergen –
+// hier stattdessen: eine Gerichte-Zutat abhaken, dann abschalten.
+const eggItem = snapIdem.data.items.find((i) => i.quelle?.id === gerichtId && i.name === "Eier");
+clientGB.ws.send(JSON.stringify({ type: "toggle", itemId: eggItem.id, erledigt: true }));
+await nextSync(clientGA);
+await nextSync(clientGB);
+
+const abschalten = await api(cookieA, `/api/list/${listId}/gerichte/${gerichtId}`, { method: "DELETE" });
+assert(abschalten.status === 200 && abschalten.data.removed === 1, "Abschalten: nur offene Zutat entfernt (removed 1)");
+
+const syncGA2 = await nextSync(clientGA);
+const syncGB2 = await nextSync(clientGB);
+assert(syncGA2.aktiveGerichte?.length === 0 && syncGB2.aktiveGerichte?.length === 0, "Abschalten: Zustand bei beiden geleert");
+assert(
+  syncGA2.items.some((i) => i.id === eggItem.id && i.erledigt),
+  "Abschalten: abgehakte Zutat bleibt liegen (Verlauf/Aufräumen greifen)"
+);
+assert(!syncGA2.items.some((i) => i.quelle?.id === gerichtId && !i.erledigt), "Abschalten: keine offenen Gerichte-Items mehr");
+
+// Negativ: Nicht-Mitglied C darf nicht zuschalten
+const negativGericht = await api(cookieC, `/api/list/${listId}/gerichte`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ gerichte: [{ id: gerichtId }] }),
+});
+assert(negativGericht.status === 404, "Zuschalten durch Nicht-Mitglied -> 404");
+
+clientGA.ws.close();
+clientGB.ws.close();
 
 console.log("== Liste löschen (nur Owner) ==");
 

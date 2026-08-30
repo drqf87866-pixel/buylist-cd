@@ -1,6 +1,6 @@
 import { json } from "../util";
 import { sendPushToUser } from "../push";
-import type { Env, HistoryEntry, ShoppingItem, ShoppingList } from "../types";
+import type { AktivesGericht, Env, HistoryEntry, ItemQuelle, ShoppingItem, ShoppingList } from "../types";
 
 const STORAGE_KEY = "list";
 
@@ -65,6 +65,33 @@ interface AddItemsBody {
   items: { name?: unknown; menge?: unknown; kategorie?: unknown }[];
 }
 
+interface AddGerichteBody {
+  listId: string;
+  displayName: string;
+  gerichte: {
+    id?: unknown;
+    titel?: unknown;
+    portionen?: unknown;
+    zutaten?: { name?: unknown; menge?: unknown; kategorie?: unknown }[];
+  }[];
+}
+
+interface RemoveGerichtBody {
+  listId?: string;
+  gerichtId?: string;
+}
+
+/** Ein Roh-Item aus einem Request; Name leer/fehlend = verworfen. */
+function parseItemRaw(raw: unknown): { name: string; menge?: string; kategorie?: string } | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const name = typeof r.name === "string" ? r.name.trim().slice(0, 120) : "";
+  if (!name) return null;
+  const menge = typeof r.menge === "string" && r.menge.trim() ? r.menge.trim().slice(0, 40) : undefined;
+  const kategorie = sanitizeKategorie(r.kategorie);
+  return { name, ...(menge ? { menge } : {}), ...(kategorie ? { kategorie } : {}) };
+}
+
 /** Freitext-Kategorie sichern; fehlt/leer = undefined (= „Sonstiges“). */
 function sanitizeKategorie(raw: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 40) : undefined;
@@ -105,6 +132,12 @@ export class ShoppingListDO {
       }
       case "/add-items": {
         return this.handleAddItems(request);
+      }
+      case "/add-gerichte": {
+        return this.handleAddGerichte(request);
+      }
+      case "/remove-gericht": {
+        return this.handleRemoveGericht(request);
       }
       case "/destroy": {
         return this.handleDestroy();
@@ -169,6 +202,116 @@ export class ShoppingListDO {
   }
 
   /**
+   * Schaltet Gerichte auf die Liste: registriert sie unter `aktiveGerichte`
+   * (bereits aktive Ids werden übersprungen – zuschalten ist idempotent) und
+   * legt die Zutaten als Items mit Herkunfts-Tag an. Ein Broadcast für alle.
+   */
+  private async handleAddGerichte(request: Request): Promise<Response> {
+    let body: AddGerichteBody;
+    try {
+      body = (await request.json()) as AddGerichteBody;
+    } catch {
+      return json({ error: "Ungültiger Body." }, 400);
+    }
+
+    const displayName = body.displayName || "Unbekannt";
+    const incoming = Array.isArray(body.gerichte) ? body.gerichte.slice(0, 20) : [];
+    if (!incoming.length) return json({ error: "Keine Gerichte übergeben." }, 400);
+
+    const list = await this.ensureList(body.listId ?? crypto.randomUUID(), "Einkaufsliste");
+    if (!list.aktiveGerichte) list.aktiveGerichte = [];
+
+    let changed = false;
+    let added = 0;
+    const neu: AktivesGericht[] = [];
+    for (const raw of incoming) {
+      const id = typeof raw?.id === "string" ? raw.id.slice(0, 64) : "";
+      if (!id || list.aktiveGerichte.some((g) => g.id === id)) continue;
+      const titel =
+        typeof raw?.titel === "string" && raw.titel.trim() ? raw.titel.trim().slice(0, 120) : "Gericht";
+      const portionen = Math.min(Math.max(Math.round(Number(raw?.portionen)) || 2, 1), 12);
+      const quelle: ItemQuelle = { typ: "gericht", id, titel };
+      for (const zutat of Array.isArray(raw?.zutaten) ? raw.zutaten : []) {
+        const parsed = parseItemRaw(zutat);
+        if (!parsed) continue;
+        this.mergeOrAdd(list, parsed.name, parsed.menge, parsed.kategorie, displayName, quelle);
+        added += 1;
+      }
+      const eintrag: AktivesGericht = {
+        id,
+        titel,
+        portionen,
+        hinzugefuegtAm: Date.now(),
+        hinzugefuegtVon: displayName,
+      };
+      list.aktiveGerichte.push(eintrag);
+      neu.push(eintrag);
+      changed = true;
+    }
+
+    if (!changed) return json({ ok: true, added: 0 });
+
+    this.cached = list;
+    await this.state.storage.put(STORAGE_KEY, list);
+    await this.ensureAlarm(list);
+    this.broadcast(list);
+    const erste = neu[0];
+    const titelText =
+      neu.length === 1 ? `„🥘 ${erste.titel}“` : `${neu.length} Gerichte (u. a. „🥘 ${erste.titel}“)`;
+    await this.notifyMembers(
+      list.id,
+      null,
+      "Gericht zugeschaltet",
+      `${titelText} wurde auf die Liste gesetzt (${displayName}).`,
+      `/list/${list.id}`
+    );
+    return json({ ok: true, added });
+  }
+
+  /**
+   * Schaltet ein Gericht ab: Zustandseintrag weg, alle offenen Items mit dieser
+   * Herkunft weg. Schon Gekauftes bleibt (Verlauf + Auto-Aufräumen greifen).
+   */
+  private async handleRemoveGericht(request: Request): Promise<Response> {
+    let body: RemoveGerichtBody;
+    try {
+      body = (await request.json()) as RemoveGerichtBody;
+    } catch {
+      return json({ error: "Ungültiger Body." }, 400);
+    }
+
+    const gerichtId = typeof body.gerichtId === "string" ? body.gerichtId : "";
+    if (!gerichtId) return json({ error: "Gericht-Id fehlt." }, 400);
+
+    const list = await this.getList();
+    if (!list) return json({ error: "Liste nicht gefunden." }, 404);
+
+    const titel = (list.aktiveGerichte ?? []).find((g) => g.id === gerichtId)?.titel;
+    const aktiveVorher = (list.aktiveGerichte ?? []).length;
+    list.aktiveGerichte = (list.aktiveGerichte ?? []).filter((g) => g.id !== gerichtId);
+    const itemsVorher = list.items.length;
+    list.items = list.items.filter((i) => !(i.quelle?.id === gerichtId && !i.erledigt));
+
+    if (list.aktiveGerichte.length === aktiveVorher && list.items.length === itemsVorher) {
+      return json({ ok: true, removed: 0 });
+    }
+
+    this.cached = list;
+    await this.state.storage.put(STORAGE_KEY, list);
+    this.broadcast(list);
+    if (titel) {
+      await this.notifyMembers(
+        list.id,
+        null,
+        "Gericht ausgeschaltet",
+        `„🥘 ${titel}“ wurde von der Liste genommen.`,
+        `/list/${list.id}`
+      );
+    }
+    return json({ ok: true, removed: itemsVorher - list.items.length });
+  }
+
+  /**
    * Duplikat-Zusammenführung: existiert der Artikel (normalisierter Name) noch
    * offen, wird nur die Menge angereichert, eine fehlende Kategorie ergänzt und
    * der Artikel nach hinten sortiert (timestamp = sichtbares Lebenszeichen).
@@ -179,13 +322,16 @@ export class ShoppingListDO {
     name: string,
     menge: string | undefined,
     kategorie: string | undefined,
-    displayName: string
+    displayName: string,
+    quelle?: ItemQuelle
   ): boolean {
     const key = normKey(name);
     const existing = list.items.find((i) => !i.erledigt && normKey(i.name) === key);
     if (existing) {
       existing.menge = mergeMenge(existing.menge, menge);
       if (!existing.kategorie && kategorie) existing.kategorie = kategorie;
+      // Herkunft nur ergänzen, nicht umschreiben – das Item trägt weiter „seine“ Quelle.
+      if (!existing.quelle && quelle) existing.quelle = quelle;
       existing.timestamp = Date.now();
       return false;
     }
@@ -197,6 +343,7 @@ export class ShoppingListDO {
       erledigt: false,
       hinzugefuegtVon: displayName,
       timestamp: Date.now(),
+      ...(quelle ? { quelle } : {}),
     });
     return true;
   }
