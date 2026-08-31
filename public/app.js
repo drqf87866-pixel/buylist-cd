@@ -67,7 +67,8 @@
   }
 
   // Löschen mit Bestätigung: erster Tap bewaffnet (3 s), zweiter Tap führt aus.
-  function deleteButton({ cls, icon, caption, confirmText, ariaLabel, onConfirm }) {
+  // Mit oneTap: true genügt ein Tap (z. B. wenn das Freilegen des Buttons – Swipe/Hover – schon die Bestätigung ist).
+  function deleteButton({ cls, icon, caption, confirmText, ariaLabel, onConfirm, oneTap = false }) {
     const btn = el("button", { class: cls, type: "button", "aria-label": ariaLabel ?? confirmText });
     let armed = false;
     let timer = null;
@@ -83,6 +84,10 @@
       }
     };
     btn.addEventListener("click", () => {
+      if (oneTap) {
+        onConfirm();
+        return;
+      }
       if (!armed) {
         armed = true;
         paint(true);
@@ -2419,6 +2424,7 @@
         confirmText: "Sicher?",
         ariaLabel: "Artikel löschen",
         onConfirm: remove,
+        oneTap: true, // Swipe zum Freilegen ist bereits die Bestätigung
       });
 
       content.append(
@@ -2444,6 +2450,7 @@
             confirmText: "Sicher?",
             ariaLabel: "Artikel löschen",
             onConfirm: remove,
+            oneTap: true,
           })
         );
       }
