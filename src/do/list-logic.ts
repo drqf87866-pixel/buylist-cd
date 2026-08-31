@@ -39,10 +39,12 @@ export function removeFromHistory(list: ShoppingList, item: ShoppingItem): void 
 }
 
 /**
- * Duplikat-Zusammenführung: existiert der Artikel (normalisierter Name) noch
- * offen, wird nur die Menge angereichert, eine fehlende Kategorie ergänzt und
- * der Artikel nach hinten sortiert (timestamp = sichtbares Lebenszeichen).
- * Sonst landet er neu auf der Liste. Gibt true zurück, wenn ein neues Item
+ * Duplikat-Zusammenführung: existiert der Artikel (normalisierter Name UND
+ * normalisierter Supermarkt) noch offen, wird nur die Menge angereichert,
+ * eine fehlende Kategorie ergänzt und der Artikel nach hinten sortiert
+ * (timestamp = sichtbares Lebenszeichen). Derselbe Name in zwei Märkten
+ * bleibt eine eigene Zeile („Milch @ Rewe“ vs. „Milch @ Edeka“). Sonst
+ * landet er neu auf der Liste. Gibt true zurück, wenn ein neues Item
  * angelegt wurde.
  */
 export function mergeOrAdd(
@@ -51,10 +53,14 @@ export function mergeOrAdd(
   menge: string | undefined,
   kategorie: string | undefined,
   displayName: string,
-  quelle?: ItemQuelle
+  quelle?: ItemQuelle,
+  supermarkt?: string
 ): boolean {
   const key = normKey(name);
-  const existing = list.items.find((i) => !i.erledigt && normKey(i.name) === key);
+  const marktKey = supermarkt ? normKey(supermarkt) : "";
+  const existing = list.items.find(
+    (i) => !i.erledigt && normKey(i.name) === key && (i.supermarkt ? normKey(i.supermarkt) : "") === marktKey
+  );
   if (existing) {
     existing.menge = mergeMenge(existing.menge, menge);
     if (!existing.kategorie && kategorie) existing.kategorie = kategorie;
@@ -72,6 +78,7 @@ export function mergeOrAdd(
     hinzugefuegtVon: displayName,
     timestamp: Date.now(),
     ...(quelle ? { quelle } : {}),
+    ...(supermarkt ? { supermarkt } : {}),
   });
   return true;
 }

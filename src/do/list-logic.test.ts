@@ -90,6 +90,43 @@ test("mergeOrAdd: Quelle wird nicht überschrieben, nur ergänzt", () => {
   assert.equal(list.items[0].quelle?.id, "r1");
 });
 
+// ---------- mergeOrAdd mit Supermarkt ----------
+
+test("mergeOrAdd: gleicher Name in anderem Markt bleibt eigene Zeile", () => {
+  const list = makeList();
+  mergeOrAdd(list, "Milch", undefined, undefined, "A", undefined, "Rewe");
+  assert.equal(mergeOrAdd(list, "Milch", undefined, undefined, "B", undefined, "Edeka"), true);
+  assert.equal(list.items.length, 2);
+  assert.equal(list.items[0].supermarkt, "Rewe");
+  assert.equal(list.items[1].supermarkt, "Edeka");
+});
+
+test("mergeOrAdd: gleicher Name + gleicher Markt merged (Menge ergänzt)", () => {
+  const list = makeList();
+  mergeOrAdd(list, "Milch", "1 l", undefined, "A", undefined, "rewe");
+  assert.equal(mergeOrAdd(list, "Milch", "500 ml", undefined, "B", undefined, "Rewe"), false);
+  assert.equal(list.items.length, 1);
+  assert.equal(list.items[0].menge, "1 l · +500 ml");
+  assert.equal(list.items[0].supermarkt, "rewe");
+});
+
+test("mergeOrAdd: Artikel ohne Markt und derselbe Name mit Markt sind getrennt", () => {
+  const list = makeList();
+  mergeOrAdd(list, "Milch", undefined, undefined, "A");
+  assert.equal(mergeOrAdd(list, "Milch", undefined, undefined, "B", undefined, "Rewe"), true);
+  assert.equal(list.items.length, 2);
+  assert.equal(list.items[0].supermarkt, undefined);
+  assert.equal(list.items[1].supermarkt, "Rewe");
+});
+
+test("mergeOrAdd: neuer Artikel trägt den Markt nur, wenn gesetzt", () => {
+  const list = makeList();
+  mergeOrAdd(list, "Kaffee", undefined, undefined, "A", undefined, "dm");
+  mergeOrAdd(list, "Brot", undefined, undefined, "A");
+  assert.equal(list.items[0].supermarkt, "dm");
+  assert.equal("supermarkt" in list.items[1], false);
+});
+
 // ---------- upsertHistory / removeFromHistory ----------
 
 test("upsertHistory: dedupliziert nach Name und sortiert neueste zuerst", () => {

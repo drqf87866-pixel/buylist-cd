@@ -8,6 +8,7 @@
   // Modul-Scripts laufen vor den deferierten klassischen Scripts).
   const {
     SONSTIGES,
+    SUPERMAERKTE,
     normKey,
     parseSteps,
     scaleMenge,
@@ -38,25 +39,43 @@
     return el("span", { class: cls, text: formatItemMenge(menge) || menge });
   }
 
-  function itemMetaEl(item) {
+  function itemMetaEl(item, onMarktTap = null) {
     if (item.pending) {
       return el("span", { class: "item-meta", text: "wird hinzugefügt…" });
     }
+    const sep = () => el("span", { class: "menge-sep", "aria-hidden": "true", text: " · " });
     const parts = [];
     if (item.menge) {
       const { wert, einheit } = parseMengeParts(item.menge);
       if (einheit) {
         parts.push(
           el("span", { class: "menge-wert", text: wert }),
-          el("span", { class: "menge-sep", "aria-hidden": "true", text: " · " }),
+          sep(),
           el("span", { class: "menge-einheit", text: einheit })
         );
       } else if (wert) {
         parts.push(el("span", { class: "menge-wert", text: wert }));
       }
     }
+    if (item.supermarkt) {
+      if (parts.length) parts.push(sep());
+      parts.push(
+        onMarktTap
+          ? el(
+              "button",
+              {
+                class: "item-markt",
+                type: "button",
+                "aria-label": `Markt für „${item.name}“ ändern`,
+                onclick: onMarktTap,
+              },
+              el("span", { text: `🛒 ${item.supermarkt}` })
+            )
+          : el("span", { class: "item-markt", text: `🛒 ${item.supermarkt}` })
+      );
+    }
     if (item.hinzugefuegtVon) {
-      if (parts.length) parts.push(el("span", { class: "menge-sep", "aria-hidden": "true", text: " · " }));
+      if (parts.length) parts.push(sep());
       parts.push(el("span", { class: "item-von", text: `von ${item.hinzugefuegtVon}` }));
     }
     return el("span", { class: "item-meta" }, ...parts);
@@ -1050,7 +1069,11 @@
         try {
           const nur = recipe.zutaten.filter((_, i) => selection[i]).map((z) => z.name);
           const res = await api(`/api/list/${listSelect.value}/gerichte`, {
-            body: { gerichte: [{ id: recipe.id, nur }] },
+            body: {
+              gerichte: [
+                { id: recipe.id, nur, supermarkt: localStorage.getItem(`bl-markt-${listSelect.value}`) || "" },
+              ],
+            },
           });
           toast(`Zugeschaltet – ${res.added} Artikel auf der Liste`);
           close();
@@ -1808,6 +1831,8 @@
    */
   function createItemListController(cfg) {
     const { items, pendingAdds, progressText, progressFill, emptyEl, itemsEl, onItemRemoved } = cfg;
+    // Markt-Zeile: marktState = aktiver Markt (fürs Hinzufügen), marktFilter = Chip (null = Alle).
+    const { marktRow, marktState, marktFilter, onOpenMarktSheet, onMarktTap } = cfg;
     let popId = null; // Artikel, dessen Abhak-Animation beim nächsten refresh() läuft
 
     const doneLabel = el("span", { class: "done-label" });
@@ -1866,7 +1891,7 @@
           "div",
           { class: "item-main" },
           el("span", { class: "item-name", text: item.name }),
-          itemMetaEl(item)
+          itemMetaEl(item, onMarktTap ? () => onMarktTap(item) : null)
         )
       );
 
@@ -1926,13 +1951,79 @@
       toast(`${doneItems.length} erledigte${doneItems.length === 1 ? "r Artikel" : " Artikel"} entfernt`);
     }
 
+    /**
+     * Markt-Zeile über der Liste: links der aktive Markt (fürs Hinzufügen),
+     * daneben die Filter-Chips. Chips entstehen aus den Märkten, die es gerade
+     * auf der Liste gibt – ein Filter-Chip verschwindet mit seinem letzten Artikel.
+     */
+    function renderMarktRow() {
+      if (!marktRow) return;
+      const markte = new Map(); // normKey -> Anzeige-Label
+      let hatOhneMarkt = false;
+      for (const it of [...items, ...pendingAdds]) {
+        const m = it.supermarkt?.trim();
+        if (m) markte.set(normKey(m), m);
+        else hatOhneMarkt = true;
+      }
+      const chipValues = new Set(markte.keys());
+      if (hatOhneMarkt) chipValues.add("");
+      // Filter zurücksetzen, wenn sein Markt nicht mehr auf der Liste ist.
+      if (marktFilter.value !== null && !chipValues.has(marktFilter.value)) marktFilter.value = null;
+
+      const activeBtn = el(
+        "button",
+        {
+          class: "markt-active",
+          type: "button",
+          "aria-haspopup": "dialog",
+          onclick: () => onOpenMarktSheet?.(),
+        },
+        el("span", { class: "markt-active-label", text: `🛒 ${marktState.value || "Markt wählen"}` }),
+        el("span", { class: "markt-active-caret", "aria-hidden": "true", text: "▾" })
+      );
+
+      const chips = el("div", { class: "markt-chips" });
+      const addChip = (value, label) => {
+        const on = marktFilter.value === value;
+        chips.append(
+          el(
+            "button",
+            {
+              class: "markt-chip" + (on ? " on" : ""),
+              type: "button",
+              "aria-pressed": String(on),
+              onclick: () => {
+                marktFilter.value = marktFilter.value === value ? null : value;
+                refresh();
+              },
+            },
+            el("span", { text: label })
+          )
+        );
+      };
+      addChip(null, "Alle");
+      for (const [key, label] of markte) addChip(key, label);
+      if (hatOhneMarkt) addChip("", "Ohne Markt");
+
+      marktRow.replaceChildren(activeBtn, chips);
+    }
+
     function refresh() {
       closeOpenSwipe();
+      renderMarktRow();
+
+      // Markt-Filter: null = „Alle“, "" = „Ohne Markt“, sonst normKey des Marktes.
+      const filter = marktFilter.value;
+      const passt = (it) => filter === null || normKey(it.supermarkt ?? "") === filter;
+
       const open = [];
       const done = [];
-      for (const it of items) (it.erledigt ? done : open).push(it);
+      for (const it of items) {
+        if (!passt(it)) continue;
+        (it.erledigt ? done : open).push(it);
+      }
       done.sort((a, b) => a.timestamp - b.timestamp);
-      const openAll = [...open, ...pendingAdds];
+      const openAll = [...open, ...pendingAdds.filter(passt)];
 
       // Nach Kategorie gruppieren (feste Markt-Reihenfolge), im Gruppenuntergang
       // nach Zeit; Header nur ab zwei Gruppen, damit Ein-Kategorie-Listen ruhig bleiben.
@@ -1965,10 +2056,11 @@
       }
       itemsEl.replaceChildren(frag);
 
-      const total = items.length;
+      // Fortschritt bezieht sich auf die sichtbare (gefilterte) Auswahl.
+      const total = open.length + done.length;
       progressText.textContent = total ? `${done.length} von ${total} erledigt` : "";
       progressFill.style.width = total ? `${Math.round((done.length / total) * 100)}%` : "0%";
-      emptyEl.hidden = total > 0 || pendingAdds.length > 0;
+      emptyEl.hidden = items.length > 0 || pendingAdds.length > 0;
     }
 
     // Nur refresh wird von außen gebraucht; removeItem/clearDoneItems/doneDivider
@@ -1984,6 +2076,12 @@
     const history = []; // „Zuletzt gekauft“ aus dem Server-Stand
     const pendingAdds = []; // optimistisch hinzugefügte Artikel, warten auf den sync
     const aktiveGerichte = []; // zugeschaltete Gerichte (Zustand liegt im DO)
+
+    // Markt-Zeile: marktState = aktiver Markt fürs Hinzufügen (pro Gerät),
+    // marktFilter = aktueller Filter-Chip (null = „Alle“, "" = „Ohne Markt“).
+    const marktState = { value: localStorage.getItem(`bl-markt-${listId}`) || "" };
+    const marktFilter = { value: null };
+    const marktRow = el("div", { class: "markt-row" });
 
     // ---------- Topbar ----------
 
@@ -2355,7 +2453,7 @@
           confirmBtn.disabled = true;
           try {
             await api(`/api/list/${listId}/gerichte`, {
-              body: { gerichte: [...selected].map((id) => ({ id })) },
+              body: { gerichte: [...selected].map((id) => ({ id, supermarkt: marktState.value || "" })) },
             });
             toast(`${selected.size} Gericht${selected.size === 1 ? "" : "e"} zugeschaltet`);
             close();
@@ -2508,12 +2606,19 @@
                 toast("Nicht verbunden – versuch es gleich nochmal.");
                 return;
               }
-              listConn.send({ type: "add", name: entry.name, menge: entry.menge, kategorie: classify(entry.name, categoryData) });
+              listConn.send({
+                type: "add",
+                name: entry.name,
+                menge: entry.menge,
+                kategorie: classify(entry.name, categoryData),
+                supermarkt: marktState.value,
+              });
               pendingAdds.push({
                 id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 name: entry.name,
                 menge: entry.menge,
                 kategorie: classify(entry.name, categoryData),
+                supermarkt: marktState.value,
                 erledigt: false,
                 hinzugefuegtVon: state.user.displayName,
                 timestamp: Date.now(),
@@ -2710,6 +2815,11 @@
       progressFill,
       emptyEl,
       itemsEl,
+      marktRow,
+      marktState,
+      marktFilter,
+      onOpenMarktSheet: () => openMarktSheet(),
+      onMarktTap: (item) => openMarktSheet(item),
       onItemRemoved: undoItemDelete,
     });
     const { refresh } = itemList;
@@ -2732,6 +2842,7 @@
               name: item.name,
               menge: item.menge,
               kategorie: item.kategorie,
+              supermarkt: item.supermarkt,
               quelle: item.quelle,
             });
             pendingAdds.push({
@@ -2739,6 +2850,7 @@
               name: item.name,
               menge: item.menge,
               kategorie: item.kategorie,
+              supermarkt: item.supermarkt,
               quelle: item.quelle,
               erledigt: false,
               hinzugefuegtVon: state.user.displayName,
@@ -2751,19 +2863,116 @@
       });
     }
 
+    // ---------- Markt-Sheet (aktiver Markt & einzelner Artikel) ----------
+
+    /** Öffnet den Markt-Picker; ohne item = aktiver Markt, mit item = dessen Markt. */
+    function openMarktSheet(item = null) {
+      const aktuell = (item ? item.supermarkt : marktState.value) || "";
+      openSheet((sheet, close) => {
+        const input = el("input", {
+          class: "input markt-input",
+          type: "text",
+          list: "markt-vorschlaege",
+          placeholder: "Markt, z. B. Rewe",
+          maxlength: "40",
+          autocomplete: "off",
+          value: aktuell,
+          "aria-label": "Supermarkt",
+        });
+        const datalist = el("datalist", { id: "markt-vorschlaege" }, ...SUPERMAERKTE.map((m) => el("option", { value: m })));
+        const rows = el("div", { class: "sheet-list" });
+
+        const select = (value) => {
+          const markt = (value || "").trim().replace(/\s+/g, " ").slice(0, 40);
+          if (item) {
+            item.supermarkt = markt || undefined;
+            listConn?.send({ type: "setMarkt", itemId: item.id, supermarkt: markt || "" });
+            refresh();
+          } else {
+            marktState.value = markt;
+            localStorage.setItem(`bl-markt-${listId}`, markt);
+            refresh();
+          }
+          close();
+        };
+
+        // Vorschläge als Tap-Zeilen; ✓ markiert den aktuell gewählten Markt.
+        for (const m of SUPERMAERKTE) {
+          const current = normKey(m) === normKey(aktuell);
+          rows.append(
+            el(
+              "button",
+              {
+                class: "sheet-row" + (current ? " current" : ""),
+                type: "button",
+                "aria-pressed": String(current),
+                onclick: () => select(m),
+              },
+              el("span", { class: "sheet-row-name", text: m }),
+              current ? el("span", { class: "sheet-check", "aria-label": "Aktueller Markt", text: "✓" }) : null
+            )
+          );
+        }
+        // „Kein Markt“ zum Zurücksetzen (bei freien Werten der aktuelle Stand).
+        rows.append(
+          el(
+            "button",
+            {
+              class: "sheet-row" + (!aktuell ? " current" : ""),
+              type: "button",
+              "aria-pressed": String(!aktuell),
+              onclick: () => select(""),
+            },
+            el("span", { class: "sheet-row-name", text: "Kein Markt" })
+          )
+        );
+
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            select(input.value);
+          }
+        });
+        const confirmBtn = el("button", {
+          class: "btn primary",
+          type: "button",
+          text: "Übernehmen",
+          onclick: () => select(input.value),
+        });
+
+        sheet.append(
+          el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+          el("h2", { class: "sheet-title", text: item ? `Markt für „${item.name}“` : "Aktiver Markt" }),
+          el("p", {
+            class: "sheet-sub muted",
+            text: item
+              ? "Diesem Artikel einen Markt zuordnen."
+              : "Alles, was du hinzufügst, bekommt automatisch diesen Markt.",
+          }),
+          input,
+          datalist,
+          el("div", { class: "sheet-pad" }, rows),
+          el("div", { class: "sheet-actions" }, confirmBtn)
+        );
+        input.focus();
+      });
+    }
+
     // ---------- Add-Bar ----------
 
-    function enqueueAdd(name, menge, kategorie) {
+    function enqueueAdd(name, menge, kategorie, supermarkt) {
       if (!listConn || listConn.readyState() !== WebSocket.OPEN) return false;
+      const markt = supermarkt || undefined;
       const dup = [...items, ...pendingAdds].some(
-        (i) => !i.erledigt && normKey(i.name) === normKey(name)
+        (i) => !i.erledigt && normKey(i.name) === normKey(name) && normKey(i.supermarkt ?? "") === normKey(markt ?? "")
       );
-      listConn.send({ type: "add", name, menge: menge || undefined, kategorie });
+      listConn.send({ type: "add", name, menge: menge || undefined, kategorie, supermarkt: markt });
       pendingAdds.push({
         id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name,
         menge: menge || undefined,
         kategorie,
+        supermarkt: markt,
         erledigt: false,
         hinzugefuegtVon: state.user.displayName,
         timestamp: Date.now(),
@@ -2845,7 +3054,7 @@
         const chosen = parsed.filter((_, i) => selection[i]);
         let anyDup = false;
         for (const it of chosen) {
-          if (enqueueAdd(it.name, it.menge, it.kategorie)) anyDup = true;
+          if (enqueueAdd(it.name, it.menge, it.kategorie, marktState.value)) anyDup = true;
         }
         nameInput.value = "";
         refresh();
@@ -2927,7 +3136,7 @@
         return;
       }
       const parsed = splitDumpLocal(name)[0] || { name };
-      const dup = enqueueAdd(parsed.name, parsed.menge, classify(parsed.name, categoryData));
+      const dup = enqueueAdd(parsed.name, parsed.menge, classify(parsed.name, categoryData), marktState.value);
       nameInput.value = "";
       refresh();
       if (dup) toast(`„${parsed.name}“ ist schon auf der Liste – Menge ergänzt.`);
@@ -2937,7 +3146,7 @@
 
     // ---------- Anzeigen ----------
 
-    $app.replaceChildren(header, gerichteWrap, itemsEl, emptyEl, addForm);
+    $app.replaceChildren(header, gerichteWrap, marktRow, itemsEl, emptyEl, addForm);
 
     // Home-Screen-Shortcut „Schnell hinzufügen“: Add-Bar fokussieren und die
     // Query sauber entfernen, damit ein Reload nicht erneut fokussiert.
@@ -2950,9 +3159,14 @@
     // wirklich etwas geändert hat (sonst würden Animationen abgewürgt).
     function reconcilePending(serverItems) {
       if (!pendingAdds.length) return;
-      const names = new Set(serverItems.map((i) => i.name.trim().toLowerCase()));
+      // Treffer nur bei gleichem Namen UND gleichem Markt – sonst würde ein
+      // „Milch @ Edeka“ das offene „Milch @ Rewe“ fälschlich bestätigen.
+      const keys = new Set(
+        serverItems.map((i) => `${i.name.trim().toLowerCase()}\u0000${normKey(i.supermarkt ?? "")}`)
+      );
       for (let i = pendingAdds.length - 1; i >= 0; i--) {
-        if (names.has(pendingAdds[i].name.trim().toLowerCase())) pendingAdds.splice(i, 1);
+        const p = pendingAdds[i];
+        if (keys.has(`${p.name.trim().toLowerCase()}\u0000${normKey(p.supermarkt ?? "")}`)) pendingAdds.splice(i, 1);
       }
     }
 

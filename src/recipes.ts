@@ -548,7 +548,7 @@ export async function handleZuschalten(request: Request, env: Env, listId: strin
 
     const body = await readJson<ZuschaltenBody>(request);
     const rawList = Array.isArray(body?.gerichte) ? body.gerichte.slice(0, 20) : [];
-    const wuensche: { id: string; nur: Set<string> | null }[] = [];
+    const wuensche: { id: string; nur: Set<string> | null; supermarkt?: string }[] = [];
     for (const raw of rawList) {
       if (typeof raw !== "object" || raw === null) continue;
       const id = (raw as Record<string, unknown>).id;
@@ -557,7 +557,12 @@ export async function handleZuschalten(request: Request, env: Env, listId: strin
       const nur = Array.isArray(nurRaw)
         ? new Set(nurRaw.filter((n): n is string => typeof n === "string").map(normKey))
         : null;
-      wuensche.push({ id, nur });
+      const supermarktRaw = (raw as Record<string, unknown>).supermarkt;
+      const supermarkt =
+        typeof supermarktRaw === "string" && supermarktRaw.trim()
+          ? supermarktRaw.trim().replace(/\s+/g, " ").slice(0, 40)
+          : undefined;
+      wuensche.push({ id, nur, ...(supermarkt ? { supermarkt } : {}) });
     }
     if (!wuensche.length) return json({ error: "Keine Gerichte übergeben." }, 400);
 
@@ -575,13 +580,25 @@ export async function handleZuschalten(request: Request, env: Env, listId: strin
       .all<{ id: string; titel: string; portionen: number; zutaten: string }>();
 
     const gefundene = new Map(results.map((row) => [row.id, row]));
-    const gerichte: { id: string; titel: string; portionen: number; zutaten: RecipeIngredient[] }[] = [];
+    const gerichte: {
+      id: string;
+      titel: string;
+      portionen: number;
+      zutaten: RecipeIngredient[];
+      supermarkt?: string;
+    }[] = [];
     for (const wunsch of wuensche) {
       const row = gefundene.get(wunsch.id);
       if (!row) continue;
       const alle = safeParse<RecipeIngredient[]>(row.zutaten, []);
       const zutaten = wunsch.nur ? alle.filter((z) => wunsch.nur!.has(normKey(z.name))) : alle;
-      gerichte.push({ id: row.id, titel: row.titel, portionen: row.portionen, zutaten });
+      gerichte.push({
+        id: row.id,
+        titel: row.titel,
+        portionen: row.portionen,
+        zutaten,
+        ...(wunsch.supermarkt ? { supermarkt: wunsch.supermarkt } : {}),
+      });
     }
     if (!gerichte.length) return json({ error: "Rezept nicht gefunden." }, 404);
 

@@ -22,7 +22,7 @@ interface InitBody {
 interface AddItemsBody {
   listId: string;
   displayName: string;
-  items: { name?: unknown; menge?: unknown; kategorie?: unknown }[];
+  items: { name?: unknown; menge?: unknown; kategorie?: unknown; supermarkt?: unknown }[];
 }
 
 interface AddGerichteBody {
@@ -32,7 +32,8 @@ interface AddGerichteBody {
     id?: unknown;
     titel?: unknown;
     portionen?: unknown;
-    zutaten?: { name?: unknown; menge?: unknown; kategorie?: unknown }[];
+    supermarkt?: unknown;
+    zutaten?: { name?: unknown; menge?: unknown; kategorie?: unknown; supermarkt?: unknown }[];
   }[];
 }
 
@@ -42,19 +43,30 @@ interface RemoveGerichtBody {
 }
 
 /** Ein Roh-Item aus einem Request; Name leer/fehlend = verworfen. */
-function parseItemRaw(raw: unknown): { name: string; menge?: string; kategorie?: string } | null {
+function parseItemRaw(raw: unknown): { name: string; menge?: string; kategorie?: string; supermarkt?: string } | null {
   if (typeof raw !== "object" || raw === null) return null;
   const r = raw as Record<string, unknown>;
   const name = typeof r.name === "string" ? r.name.trim().slice(0, 120) : "";
   if (!name) return null;
   const menge = typeof r.menge === "string" && r.menge.trim() ? r.menge.trim().slice(0, 40) : undefined;
   const kategorie = sanitizeKategorie(r.kategorie);
-  return { name, ...(menge ? { menge } : {}), ...(kategorie ? { kategorie } : {}) };
+  const supermarkt = sanitizeMarkt(r.supermarkt);
+  return {
+    name,
+    ...(menge ? { menge } : {}),
+    ...(kategorie ? { kategorie } : {}),
+    ...(supermarkt ? { supermarkt } : {}),
+  };
 }
 
 /** Freitext-Kategorie sichern; fehlt/leer = undefined (= „Sonstiges“). */
 function sanitizeKategorie(raw: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 40) : undefined;
+}
+
+/** Freitext-Markt sichern; fehlt/leer = undefined (= kein Markt). */
+function sanitizeMarkt(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw.trim() ? raw.trim().replace(/\s+/g, " ").slice(0, 40) : undefined;
 }
 
 /** Gericht-Herkunft aus einer WS-Nachricht sichern (typ/id/titel begrenzt). */
@@ -149,7 +161,8 @@ export class ShoppingListDO {
       const menge =
         typeof raw?.menge === "string" && raw.menge.trim() ? raw.menge.trim().slice(0, 40) : undefined;
       const kategorie = sanitizeKategorie(raw?.kategorie);
-      if (mergeOrAdd(list, name, menge, kategorie, displayName)) added += 1;
+      const supermarkt = sanitizeMarkt(raw?.supermarkt);
+      if (mergeOrAdd(list, name, menge, kategorie, displayName, undefined, supermarkt)) added += 1;
       newItemName = name;
       changed = true;
     }
@@ -201,11 +214,12 @@ export class ShoppingListDO {
       const titel =
         typeof raw?.titel === "string" && raw.titel.trim() ? raw.titel.trim().slice(0, 120) : "Gericht";
       const portionen = Math.min(Math.max(Math.round(Number(raw?.portionen)) || 2, 1), 12);
+      const supermarkt = sanitizeMarkt(raw?.supermarkt);
       const quelle: ItemQuelle = { typ: "gericht", id, titel };
       for (const zutat of Array.isArray(raw?.zutaten) ? raw.zutaten : []) {
         const parsed = parseItemRaw(zutat);
         if (!parsed) continue;
-        mergeOrAdd(list, parsed.name, parsed.menge, parsed.kategorie, displayName, quelle);
+        mergeOrAdd(list, parsed.name, parsed.menge, parsed.kategorie, displayName, quelle, parsed.supermarkt ?? supermarkt);
         added += 1;
       }
       const eintrag: AktivesGericht = {
@@ -352,7 +366,7 @@ export class ShoppingListDO {
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string" || message === "ping") return;
 
-    let msg: { type?: string; itemId?: string; name?: string; menge?: string; kategorie?: string; erledigt?: boolean; quelle?: unknown };
+    let msg: { type?: string; itemId?: string; name?: string; menge?: string; kategorie?: string; erledigt?: boolean; quelle?: unknown; supermarkt?: unknown };
     try {
       msg = JSON.parse(message);
     } catch {
@@ -379,7 +393,7 @@ export class ShoppingListDO {
       }
       const menge =
         typeof msg.menge === "string" && msg.menge.trim() ? msg.menge.trim().slice(0, 40) : undefined;
-      mergeOrAdd(list, name, menge, sanitizeKategorie(msg.kategorie), triggerName, sanitizeQuelle(msg.quelle));
+      mergeOrAdd(list, name, menge, sanitizeKategorie(msg.kategorie), triggerName, sanitizeQuelle(msg.quelle), sanitizeMarkt(msg.supermarkt));
       changed = true;
       notifyTitle = "Neuer Artikel";
       notifyBody = `„${name}“ wurde auf die Liste gesetzt (${triggerName}).`;
@@ -405,6 +419,14 @@ export class ShoppingListDO {
       changed = list.items.length !== before;
       // Der Verlauf bleibt beim Löschen bewusst erhalten – er ist Gedächtnis,
       // kein Spiegel der aktuellen Liste.
+    } else if (msg.type === "setMarkt") {
+      const item = list.items.find((i) => i.id === msg.itemId);
+      const markt = sanitizeMarkt(msg.supermarkt);
+      if (item && (item.supermarkt ?? undefined) !== markt) {
+        if (markt) item.supermarkt = markt;
+        else delete item.supermarkt;
+        changed = true;
+      }
     }
 
     if (!changed) return;

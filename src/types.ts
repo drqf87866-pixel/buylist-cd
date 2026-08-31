@@ -44,6 +44,8 @@ export interface ShoppingItem {
   menge?: string;
   /** Kategorie-Id laut public/data/categories.json; fehlt = „Sonstiges“. */
   kategorie?: string;
+  /** Supermarkt (freie Bezeichnung, Vorschläge clientseitig); fehlt = kein Markt. */
+  supermarkt?: string;
   erledigt: boolean;
   hinzugefuegtVon: string;
   timestamp: number;
@@ -90,9 +92,11 @@ export interface ShoppingList {
 
 /** Client -> Durable Object */
 export type ClientMessage =
-  | { type: "add"; name: string; menge?: string; kategorie?: string; quelle?: ItemQuelle }
+  | { type: "add"; name: string; menge?: string; kategorie?: string; supermarkt?: string; quelle?: ItemQuelle }
   | { type: "toggle"; itemId: string; erledigt: boolean }
-  | { type: "delete"; itemId: string };
+  | { type: "delete"; itemId: string }
+  /** Markt eines Artikels setzen/leeren ("" = kein Markt). */
+  | { type: "setMarkt"; itemId: string; supermarkt?: string };
 
 /** Durable Object -> Client */
 export type ServerMessage =

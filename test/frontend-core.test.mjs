@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   SONSTIGES,
+  SUPERMAERKTE,
   normKey,
   parseSteps,
   scaleMenge,
@@ -59,6 +60,14 @@ test("categoryOrder: alle Kategorien in Marktreihenfolge, sonstiges am Ende", ()
 test("normKey: „  Milch “ == „milch“", () => {
   assert.equal(normKey("  Milch  "), "milch");
   assert.equal(normKey("2×   Apfel"), "2× apfel");
+});
+
+// ---------- SUPERMAERKTE ----------
+
+test("SUPERMAERKTE: gängige Märkte als Vorschläge vorhanden", () => {
+  assert.ok(SUPERMAERKTE.includes("Rewe"));
+  assert.ok(SUPERMAERKTE.includes("Lidl"));
+  assert.ok(SUPERMAERKTE.length >= 5);
 });
 
 // ---------- parseSteps ----------

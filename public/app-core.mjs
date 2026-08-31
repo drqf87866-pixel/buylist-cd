@@ -7,6 +7,19 @@
 
 export const SONSTIGES = "sonstiges";
 
+/** Vorschläge für den Markt-Picker; Freitext bleibt trotzdem erlaubt. */
+export const SUPERMAERKTE = [
+  "Rewe",
+  "Edeka",
+  "Aldi",
+  "Lidl",
+  "Kaufland",
+  "Netto",
+  "Penny",
+  "dm",
+  "Rossmann",
+];
+
 /** Duplikat-Schlüssel wie im Durable Object: „  Milch “ == „milch“ */
 export function normKey(name) {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -228,6 +241,7 @@ function peelMenge(part) {
 if (typeof window !== "undefined") {
   window.BC = {
     SONSTIGES,
+    SUPERMAERKTE,
     normKey,
     parseSteps,
     scaleMenge,
