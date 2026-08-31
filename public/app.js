@@ -19,7 +19,48 @@
     categoryOrder,
     looksLikeDump,
     splitDumpLocal,
+    parseMengeParts,
+    formatItemMenge,
   } = window.BC;
+
+  function mengeEl(menge, cls = "recipe-menge") {
+    if (!menge) return null;
+    const parts = parseMengeParts(menge);
+    if (parts.einheit) {
+      return el(
+        "span",
+        { class: cls },
+        el("span", { class: "menge-wert", text: parts.wert }),
+        el("span", { class: "menge-sep", "aria-hidden": "true", text: " · " }),
+        el("span", { class: "menge-einheit", text: parts.einheit })
+      );
+    }
+    return el("span", { class: cls, text: formatItemMenge(menge) || menge });
+  }
+
+  function itemMetaEl(item) {
+    if (item.pending) {
+      return el("span", { class: "item-meta", text: "wird hinzugefügt…" });
+    }
+    const parts = [];
+    if (item.menge) {
+      const { wert, einheit } = parseMengeParts(item.menge);
+      if (einheit) {
+        parts.push(
+          el("span", { class: "menge-wert", text: wert }),
+          el("span", { class: "menge-sep", "aria-hidden": "true", text: " · " }),
+          el("span", { class: "menge-einheit", text: einheit })
+        );
+      } else if (wert) {
+        parts.push(el("span", { class: "menge-wert", text: wert }));
+      }
+    }
+    if (item.hinzugefuegtVon) {
+      if (parts.length) parts.push(el("span", { class: "menge-sep", "aria-hidden": "true", text: " · " }));
+      parts.push(el("span", { class: "item-von", text: `von ${item.hinzugefuegtVon}` }));
+    }
+    return el("span", { class: "item-meta" }, ...parts);
+  }
 
   const state = {
     user: null, // null = ausgeloggt, sonst PublicUser
@@ -615,7 +656,7 @@
             "li",
             {},
             el("span", { text: z.name }),
-            z.menge ? el("span", { class: "recipe-menge", text: z.menge }) : null
+            z.menge ? mengeEl(z.menge) : null
           )
         );
         return;
@@ -631,7 +672,7 @@
         },
         el("span", { class: "ing-row-check", "aria-hidden": "true", text: "✓" }),
         el("span", { class: "ing-row-name", text: z.name }),
-        z.menge ? el("span", { class: "recipe-menge", text: z.menge }) : null
+        z.menge ? mengeEl(z.menge) : null
       );
       toggle.addEventListener("click", () => {
         sel[i] = !sel[i];
@@ -1727,22 +1768,15 @@
     );
   }
 
-  /** Add-Bar: baut das Formular; onSubmit bekommt {name, menge} und räumt selbst auf. */
+  /** Add-Bar: ein Freitextfeld; onSubmit bekommt {name}, Menge wird lokal abgelöst. */
   function buildAddBar(onSubmit) {
     const nameInput = el("input", {
       class: "input",
       type: "text",
-      placeholder: "Artikel, z. B. Milch",
+      placeholder: "Artikel, z. B. Milch 2l",
       maxlength: "280",
       autocomplete: "off",
       enterkeyhint: "send",
-    });
-    const mengeInput = el("input", {
-      class: "input menge",
-      type: "text",
-      placeholder: "2× / 500g",
-      maxlength: "40",
-      autocomplete: "off",
     });
     const addBtn = el("button", { class: "btn primary add-btn", type: "submit", "aria-label": "Artikel hinzufügen", text: "+" });
 
@@ -1753,20 +1787,18 @@
         onsubmit: (event) => {
           event.preventDefault();
           const name = nameInput.value.trim();
-          const menge = mengeInput.value.trim();
           if (!name) {
             nameInput.focus();
             return;
           }
-          onSubmit({ name, menge });
+          onSubmit({ name });
         },
       },
       nameInput,
-      mengeInput,
       addBtn
     );
 
-    return { form, nameInput, mengeInput };
+    return { form, nameInput, addBtn };
   }
 
   /**
@@ -1834,10 +1866,7 @@
           "div",
           { class: "item-main" },
           el("span", { class: "item-name", text: item.name }),
-          el("span", {
-            class: "item-meta",
-            text: item.pending ? "wird hinzugefügt…" : [item.menge, `von ${item.hinzugefuegtVon}`].filter(Boolean).join(" · "),
-          })
+          itemMetaEl(item)
         )
       );
 
@@ -2470,7 +2499,7 @@
             el("span", { class: "hist-chip-name", text: entry.name }),
             el("span", {
               class: "hist-chip-sub muted",
-              text: onList ? "auf der Liste" : [entry.menge, relTime(entry.gekauftAm)].filter(Boolean).join(" · "),
+              text: onList ? "auf der Liste" : [formatItemMenge(entry.menge), relTime(entry.gekauftAm)].filter(Boolean).join(" · "),
             })
           );
           if (!onList) {
@@ -2566,7 +2595,7 @@
                     "span",
                     { class: "sheet-row-name" },
                     el("span", { text: rule.name }),
-                    rule.menge ? el("span", { class: "muted", text: ` · ${rule.menge}` }) : null
+                    rule.menge ? el("span", { class: "muted", text: ` · ${formatItemMenge(rule.menge)}` }) : null
                   ),
                   el("span", { class: "recurring-interval muted", text: intervallLabel(rule.intervallTage) }),
                   delBtn
@@ -2796,7 +2825,7 @@
           },
           el("span", { class: "ing-row-check", "aria-hidden": "true", text: "✓" }),
           el("span", { class: "ing-row-name", text: it.name }),
-          it.menge ? el("span", { class: "recipe-menge", text: it.menge }) : null
+          it.menge ? mengeEl(it.menge) : null
         );
         toggle.addEventListener("click", () => {
           selection[i] = !selection[i];
@@ -2819,7 +2848,6 @@
           if (enqueueAdd(it.name, it.menge, it.kategorie)) anyDup = true;
         }
         nameInput.value = "";
-        mengeInput.value = "";
         refresh();
         itemsEl.querySelector(".pending")?.scrollIntoView({ block: "nearest" });
         const n = chosen.length;
@@ -2889,7 +2917,7 @@
       );
     }
 
-    const { form: addForm, nameInput, mengeInput, addBtn } = buildAddBar(({ name, menge }) => {
+    const { form: addForm, nameInput, addBtn } = buildAddBar(({ name }) => {
       if (!listConn || listConn.readyState() !== WebSocket.OPEN) {
         toast("Nicht verbunden – versuch es gleich nochmal.");
         return;
@@ -2898,11 +2926,11 @@
         openDumpParse(name);
         return;
       }
-      const dup = enqueueAdd(name, menge, classify(name, categoryData));
+      const parsed = splitDumpLocal(name)[0] || { name };
+      const dup = enqueueAdd(parsed.name, parsed.menge, classify(parsed.name, categoryData));
       nameInput.value = "";
-      mengeInput.value = "";
       refresh();
-      if (dup) toast(`„${name}“ ist schon auf der Liste – Menge ergänzt.`);
+      if (dup) toast(`„${parsed.name}“ ist schon auf der Liste – Menge ergänzt.`);
       itemsEl.querySelector(".pending")?.scrollIntoView({ block: "nearest" });
       nameInput.focus();
     });
@@ -3196,7 +3224,7 @@
                 },
               },
               el("span", { class: "cook-ing-dot", "aria-hidden": "true" }),
-              z.menge ? el("span", { class: "cook-ing-menge", text: scaleMenge(z.menge, factor) }) : null,
+              z.menge ? mengeEl(scaleMenge(z.menge, factor), "cook-ing-menge") : null,
               el("span", { class: "cook-ing-name", text: z.name })
             )
           );

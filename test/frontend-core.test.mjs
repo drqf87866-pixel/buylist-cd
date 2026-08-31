@@ -15,6 +15,9 @@ import {
   categoryOrder,
   looksLikeDump,
   splitDumpLocal,
+  parseMengeParts,
+  composeMenge,
+  formatItemMenge,
 } from "../public/app-core.mjs";
 
 const categories = JSON.parse(
@@ -125,6 +128,7 @@ test("relTime: deutsche Relativzeit anhand fester Vergangenheits-Offsets", () =>
 test("looksLikeDump: einzelne Artikel und Dezimal-Kommas sind kein Dump", () => {
   assert.equal(looksLikeDump(""), false);
   assert.equal(looksLikeDump("Milch"), false);
+  assert.equal(looksLikeDump("milch 2l"), false);
   assert.equal(looksLikeDump("Bio-Milch 3,5%"), false);
   assert.equal(looksLikeDump("Butter und"), false);
 });
@@ -138,16 +142,28 @@ test("looksLikeDump: Komma, Semikolon, Zeile und „und“ zählen als Dump", ()
 });
 
 test("splitDumpLocal: Kommas, Mengen und „und“", () => {
+  assert.deepEqual(splitDumpLocal("milch 2l"), [{ name: "milch", menge: "2 Liter" }]);
   assert.deepEqual(splitDumpLocal("Milch 2l, Brot, 6 Eier"), [
-    { name: "Milch", menge: "2 l" },
+    { name: "Milch", menge: "2 Liter" },
     { name: "Brot" },
     { name: "Eier", menge: "6" },
   ]);
   assert.deepEqual(splitDumpLocal("Milch und Brot"), [{ name: "Milch" }, { name: "Brot" }]);
   assert.deepEqual(splitDumpLocal("500g Hackfleisch, 2l Milch"), [
-    { name: "Hackfleisch", menge: "500 g" },
-    { name: "Milch", menge: "2 l" },
+    { name: "Hackfleisch", menge: "500 Gramm" },
+    { name: "Milch", menge: "2 Liter" },
   ]);
+});
+
+test("parseMengeParts / formatItemMenge: Wert und Einheit getrennt", () => {
+  assert.deepEqual(parseMengeParts("2 Liter"), { wert: "2", einheit: "Liter" });
+  assert.deepEqual(parseMengeParts("2 l"), { wert: "2", einheit: "Liter" });
+  assert.deepEqual(parseMengeParts("500 Gramm"), { wert: "500", einheit: "Gramm" });
+  assert.deepEqual(parseMengeParts("6"), { wert: "6" });
+  assert.deepEqual(parseMengeParts("1 Bund"), { wert: "1 Bund" });
+  assert.equal(formatItemMenge("2 Liter"), "2 · Liter");
+  assert.equal(formatItemMenge("6"), "6");
+  assert.equal(composeMenge("2", "Liter"), "2 Liter");
 });
 
 test("splitDumpLocal: Dezimal-Komma bleibt im Artikel, Duplikate fallen weg", () => {

@@ -112,11 +112,72 @@ export function looksLikeDump(text) {
   return false;
 }
 
-/** Menge „2l“ / „500 g“ vereinheitlichen. */
+const EINHEIT_LABELS = {
+  l: "Liter",
+  liter: "Liter",
+  ml: "Milliliter",
+  milliliter: "Milliliter",
+  g: "Gramm",
+  gramm: "Gramm",
+  kg: "Kilogramm",
+  kilogramm: "Kilogramm",
+  stk: "Stück",
+  stück: "Stück",
+  stueck: "Stück",
+  x: "Stück",
+  "×": "Stück",
+};
+
+/** Kurzform → lesbare Einheit (z. B. „l“ → „Liter“). */
+function normalizeEinheit(raw) {
+  if (!raw) return undefined;
+  const key = raw.trim().toLowerCase().replace("ü", "ue");
+  return EINHEIT_LABELS[key];
+}
+
+/** Freitext-Menge in Wert + Einheit zerlegen (z. B. „2 Liter“ → { wert: „2“, einheit: „Liter“ }). */
+export function parseMengeParts(menge) {
+  const t = String(menge ?? "").trim();
+  if (!t) return {};
+  const structured = t.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+  if (structured) {
+    const wert = structured[1];
+    const einheit = normalizeEinheit(structured[2]);
+    if (einheit) return { wert, einheit };
+    return { wert: t };
+  }
+  const compact = t.match(/^(\d+(?:[.,]\d+)?)(kg|g|l|ml|stk|stück|stueck|x|×)$/i);
+  if (compact) {
+    const einheit = normalizeEinheit(compact[2]);
+    if (einheit) return { wert: compact[1], einheit };
+  }
+  if (/^\d+(?:[.,]\d+)?$/.test(t)) return { wert: t };
+  return { wert: t };
+}
+
+/** Wert + Einheit zu Speicher-String (z. B. „2“ + „Liter“ → „2 Liter“). */
+export function composeMenge(wert, einheit) {
+  if (!wert) return undefined;
+  return einheit ? `${wert} ${einheit}` : String(wert);
+}
+
+/** Anzeige „2 · Liter“; ohne Einheit nur der Wert bzw. der Rohtext. */
+export function formatItemMenge(menge) {
+  const t = String(menge ?? "").trim();
+  if (!t) return "";
+  const { wert, einheit } = parseMengeParts(t);
+  if (einheit) return `${wert} · ${einheit}`;
+  return wert ?? t;
+}
+
+/** Menge „2l“ / „500 g“ in „2 Liter“ / „500 Gramm“ vereinheitlichen. */
 function formatMenge(raw) {
   const t = String(raw ?? "").trim().replace(/\s+/g, " ");
-  const m = t.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)$/i);
-  if (m) return `${m[1]} ${m[2].toLowerCase()}`;
+  const m = t.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml|stk|stück|stueck|x|×)?$/i);
+  if (m) {
+    const einheit = normalizeEinheit(m[2]);
+    return composeMenge(m[1], einheit) ?? m[1];
+  }
   return t;
 }
 
@@ -178,5 +239,8 @@ if (typeof window !== "undefined") {
     categoryOrder,
     looksLikeDump,
     splitDumpLocal,
+    parseMengeParts,
+    composeMenge,
+    formatItemMenge,
   };
 }

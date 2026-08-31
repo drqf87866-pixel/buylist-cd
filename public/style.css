@@ -651,6 +651,20 @@ body.has-addbar .container {
   color: var(--muted);
 }
 
+.item-meta .menge-wert {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.item-meta .menge-einheit {
+  font-weight: 500;
+}
+
+.menge-sep {
+  opacity: 0.55;
+}
+
 /* Erledigt: gedämpfte Farben statt Transparenz (darunterliegende
    Löschen-Fläche dürfte nicht durchscheinen), rutscht in die Erledigt-Gruppe */
 .swipe-cell.done .swipe-content {
@@ -921,13 +935,9 @@ body.has-addbar .container {
 
 .add-bar .input {
   min-height: 52px;
-}
-
-.add-bar .menge {
-  flex: 0 0 100px;
-  padding-left: 10px;
-  padding-right: 10px;
-  text-align: center;
+  flex: 1;
+  min-width: 0;
+  width: auto;
 }
 
 .add-btn {
