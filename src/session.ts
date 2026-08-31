@@ -1,4 +1,4 @@
-import { sha256Base64Url } from "./crypto";
+import { randomToken, sha256Base64Url } from "./crypto";
 import { getCookie } from "./util";
 import type { PublicUser } from "./types";
 
@@ -29,7 +29,7 @@ export async function createSession(
   db: D1Database,
   userId: string
 ): Promise<{ token: string; expiresAt: number }> {
-  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+  const token = randomToken(32);
   const tokenHash = await sha256Base64Url(token);
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;

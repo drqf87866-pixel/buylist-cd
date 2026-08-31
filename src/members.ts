@@ -1,12 +1,7 @@
 import { withAuth } from "./session";
 import { destroyListDoState, getListMeta, getRole, isMember } from "./lists";
-import { json, readJson } from "./util";
+import { json, listNotFound, readJson } from "./util";
 import type { Env } from "./types";
-
-/** 404 statt 403, damit die Existenz fremder Listen nicht aufscheint. */
-function notFound(): Response {
-  return json({ error: "Liste nicht gefunden." }, 404);
-}
 
 interface MemberRow {
   id: string;
@@ -19,7 +14,7 @@ interface MemberRow {
 /** GET /api/list/:id/members – alle Mitglieder einer Liste (jedes Mitglied). */
 export async function handleGetMembers(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await isMember(env.DB, listId, user.id))) return notFound();
+    if (!(await isMember(env.DB, listId, user.id))) return listNotFound();
     const meta = await getListMeta(env.DB, listId);
 
     const { results } = await env.DB.prepare(
@@ -55,7 +50,7 @@ interface RemoveBody {
  */
 export async function handleRemoveMember(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await isMember(env.DB, listId, user.id))) return notFound();
+    if (!(await isMember(env.DB, listId, user.id))) return listNotFound();
     const meta = await getListMeta(env.DB, listId);
     const role = await getRole(env.DB, listId, user.id);
     if (role !== "owner" && meta?.owner_id !== user.id) {
@@ -88,7 +83,7 @@ interface TransferBody {
  */
 export async function handleTransferOwner(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await isMember(env.DB, listId, user.id))) return notFound();
+    if (!(await isMember(env.DB, listId, user.id))) return listNotFound();
     const meta = await getListMeta(env.DB, listId);
     const role = await getRole(env.DB, listId, user.id);
     if (role !== "owner" && meta?.owner_id !== user.id) {
@@ -133,7 +128,7 @@ const SUCCESSOR_SUBQUERY =
 export async function handleLeaveList(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     const role = await getRole(env.DB, listId, user.id);
-    if (!role) return notFound();
+    if (!role) return listNotFound();
     const meta = await getListMeta(env.DB, listId);
 
     if (role !== "owner" && meta?.owner_id !== user.id) {

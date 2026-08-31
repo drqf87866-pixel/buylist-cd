@@ -430,6 +430,22 @@ const negativGericht = await api(cookieC, `/api/list/${listId}/gerichte`, {
 });
 assert(negativGericht.status === 404, "Zuschalten durch Nicht-Mitglied -> 404");
 
+// Undo-Re-Add: WS-Add mit quelle-Tag muss die Gericht-Herkunft übernehmen
+// (Review-Fix: Undo nach Löschen verliert das quelle-Tag nicht mehr).
+clientGB.ws.send(JSON.stringify({
+  type: "add",
+  name: "UndoKäse",
+  menge: "200 g",
+  quelle: { typ: "gericht", id: "r-undofix", titel: "Review-Fix" },
+}));
+const syncQ1 = await nextSync(clientGA);
+await nextSync(clientGB);
+const quelleItem = syncQ1.items.find((i) => i.name === "UndoKäse");
+assert(
+  quelleItem?.quelle?.typ === "gericht" && quelleItem?.quelle?.id === "r-undofix",
+  "WS-Add übernimmt das quelle-Tag (Undo-Fix)"
+);
+
 clientGA.ws.close();
 clientGB.ws.close();
 

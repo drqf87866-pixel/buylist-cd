@@ -1689,6 +1689,43 @@ body.has-nav .container {
   transform: translateX(-50%) translateY(0);
 }
 
+.toast-action {
+  margin-left: 10px;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #2b3026;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: #e6e2d5;
+}
+
+/* ---------- QR-Code im Mitglieder-Sheet ---------- */
+
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+
+.qr-img {
+  border: 1px solid var(--border, #e0dccb);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.qr-hint {
+  font-size: 0.85rem;
+}
+
 /* ---------- Verlauf „Zuletzt gekauft“ (Sheet + Fortschritts-Button) ---------- */
 
 .progress-btn {

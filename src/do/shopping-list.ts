@@ -1,48 +1,13 @@
-import { json, normKey } from "../util";
+import { json } from "../util";
 import { sendPushToUser } from "../push";
-import type { AktivesGericht, Env, HistoryEntry, ItemQuelle, ShoppingItem, ShoppingList } from "../types";
+import { mergeOrAdd, removeFromHistory, upsertHistory } from "./list-logic";
+import type { AktivesGericht, Env, ItemQuelle, ShoppingList } from "../types";
 
 const STORAGE_KEY = "list";
 
 // Auto-Aufräumen: erledigte Artikel verschwinden 24 h nach dem Abhaken
 // (Kaufdatum ist bis dahin im Verlauf „Zuletzt gekauft“ verbucht).
 const CLEANUP_AFTER_MS = 24 * 60 * 60 * 1000;
-const HISTORY_MAX = 100;
-const MENGE_MAX = 80;
-
-/**
- * Freitext-Mengen anreichern statt überschreiben: „500 g“ + „1 l“ wird
- * „500 g · +1 l“. Gleiche Menge wird verworfen, das Feld bleibt klein.
- */
-function mergeMenge(existing: string | undefined, incoming: string | undefined): string | undefined {
-  if (!incoming) return existing;
-  if (!existing) return incoming;
-  if (existing.toLowerCase() === incoming.toLowerCase()) return existing;
-  const base = existing.split(" · ")[0];
-  const additions = existing
-    .split(" · ")
-    .slice(1)
-    .filter((p) => p.toLowerCase() !== `+${incoming.toLowerCase()}`);
-  const next = [base, ...additions, `+${incoming}`].join(" · ");
-  return next.length <= MENGE_MAX ? next : `${base} · +${incoming}`;
-}
-
-function upsertHistory(list: ShoppingList, item: ShoppingItem): void {
-  const key = normKey(item.name);
-  const history: HistoryEntry[] = (list.history ?? []).filter((h) => normKey(h.name) !== key);
-  history.unshift({ name: item.name, menge: item.menge, gekauftAm: item.gekauftAm ?? Date.now() });
-  list.history = history.slice(0, HISTORY_MAX);
-}
-
-function removeFromHistory(list: ShoppingList, item: ShoppingItem): void {
-  // Eintrag nur wegnehmen, wenn nicht noch ein weiteres abgehaktes Item denselben Namen trägt.
-  const key = normKey(item.name);
-  const stillChecked = list.items.some(
-    (i) => i.erledigt && i.id !== item.id && normKey(i.name) === key
-  );
-  if (stillChecked) return;
-  list.history = (list.history ?? []).filter((h) => normKey(h.name) !== key);
-}
 
 interface WsMeta {
   userId: string;
@@ -90,6 +55,17 @@ function parseItemRaw(raw: unknown): { name: string; menge?: string; kategorie?:
 /** Freitext-Kategorie sichern; fehlt/leer = undefined (= „Sonstiges“). */
 function sanitizeKategorie(raw: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, 40) : undefined;
+}
+
+/** Gericht-Herkunft aus einer WS-Nachricht sichern (typ/id/titel begrenzt). */
+function sanitizeQuelle(raw: unknown): ItemQuelle | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const o = raw as Record<string, unknown>;
+  if (o.typ !== "gericht") return undefined;
+  const id = typeof o.id === "string" && o.id ? o.id.slice(0, 64) : "";
+  if (!id) return undefined;
+  const titel = typeof o.titel === "string" ? o.titel.slice(0, 120) : "Gericht";
+  return { typ: "gericht", id, titel };
 }
 
 /**
@@ -173,7 +149,7 @@ export class ShoppingListDO {
       const menge =
         typeof raw?.menge === "string" && raw.menge.trim() ? raw.menge.trim().slice(0, 40) : undefined;
       const kategorie = sanitizeKategorie(raw?.kategorie);
-      if (this.mergeOrAdd(list, name, menge, kategorie, displayName)) added += 1;
+      if (mergeOrAdd(list, name, menge, kategorie, displayName)) added += 1;
       newItemName = name;
       changed = true;
     }
@@ -229,7 +205,7 @@ export class ShoppingListDO {
       for (const zutat of Array.isArray(raw?.zutaten) ? raw.zutaten : []) {
         const parsed = parseItemRaw(zutat);
         if (!parsed) continue;
-        this.mergeOrAdd(list, parsed.name, parsed.menge, parsed.kategorie, displayName, quelle);
+        mergeOrAdd(list, parsed.name, parsed.menge, parsed.kategorie, displayName, quelle);
         added += 1;
       }
       const eintrag: AktivesGericht = {
@@ -306,43 +282,6 @@ export class ShoppingListDO {
     return json({ ok: true, removed: itemsVorher - list.items.length });
   }
 
-  /**
-   * Duplikat-Zusammenführung: existiert der Artikel (normalisierter Name) noch
-   * offen, wird nur die Menge angereichert, eine fehlende Kategorie ergänzt und
-   * der Artikel nach hinten sortiert (timestamp = sichtbares Lebenszeichen).
-   * Sonst landet er neu auf der Liste.
-   */
-  private mergeOrAdd(
-    list: ShoppingList,
-    name: string,
-    menge: string | undefined,
-    kategorie: string | undefined,
-    displayName: string,
-    quelle?: ItemQuelle
-  ): boolean {
-    const key = normKey(name);
-    const existing = list.items.find((i) => !i.erledigt && normKey(i.name) === key);
-    if (existing) {
-      existing.menge = mergeMenge(existing.menge, menge);
-      if (!existing.kategorie && kategorie) existing.kategorie = kategorie;
-      // Herkunft nur ergänzen, nicht umschreiben – das Item trägt weiter „seine“ Quelle.
-      if (!existing.quelle && quelle) existing.quelle = quelle;
-      existing.timestamp = Date.now();
-      return false;
-    }
-    list.items.push({
-      id: crypto.randomUUID(),
-      name,
-      menge,
-      kategorie,
-      erledigt: false,
-      hinzugefuegtVon: displayName,
-      timestamp: Date.now(),
-      ...(quelle ? { quelle } : {}),
-    });
-    return true;
-  }
-
   private async getList(): Promise<ShoppingList | null> {
     if (this.cached === undefined) {
       this.cached = (await this.state.storage.get<ShoppingList>(STORAGE_KEY)) ?? null;
@@ -413,7 +352,7 @@ export class ShoppingListDO {
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string" || message === "ping") return;
 
-    let msg: { type?: string; itemId?: string; name?: string; menge?: string; kategorie?: string; erledigt?: boolean };
+    let msg: { type?: string; itemId?: string; name?: string; menge?: string; kategorie?: string; erledigt?: boolean; quelle?: unknown };
     try {
       msg = JSON.parse(message);
     } catch {
@@ -440,7 +379,7 @@ export class ShoppingListDO {
       }
       const menge =
         typeof msg.menge === "string" && msg.menge.trim() ? msg.menge.trim().slice(0, 40) : undefined;
-      this.mergeOrAdd(list, name, menge, sanitizeKategorie(msg.kategorie), triggerName);
+      mergeOrAdd(list, name, menge, sanitizeKategorie(msg.kategorie), triggerName, sanitizeQuelle(msg.quelle));
       changed = true;
       notifyTitle = "Neuer Artikel";
       notifyBody = `„${name}“ wurde auf die Liste gesetzt (${triggerName}).`;
@@ -556,12 +495,15 @@ export class ShoppingListDO {
         .bind(listId, triggerUserId ?? "")
         .all<{ user_id: string }>();
       if (!results?.length) return;
-      // Nacheinander senden (jeder Nutzer hat wenige Subscriptions); Fehler isolieren.
-      for (const row of results) {
-        await sendPushToUser(this.env, row.user_id, title, body, url).catch((err) => {
-          console.error("Push an Mitglied fehlgeschlagen:", err);
-        });
-      }
+      // Parallel senden (sendPushToUser liefert intern Promise.allSettled über
+      // die Subscriptions eines Nutzers); Fehler isolieren und einzeln loggen.
+      await Promise.allSettled(
+        results.map((row) =>
+          sendPushToUser(this.env, row.user_id, title, body, url).catch((err) => {
+            console.error("Push an Mitglied fehlgeschlagen:", err);
+          })
+        )
+      );
     } catch (err) {
       console.error("Push-Benachrichtigung fehlgeschlagen:", err);
     }

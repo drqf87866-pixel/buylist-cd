@@ -1,5 +1,13 @@
 import { withAuth } from "./session";
-import { json, readJson } from "./util";
+import { json, missingSecret, readJson } from "./util";
+import {
+  base64UrlToBytes,
+  bytesToBase64Url,
+  deriveIkm,
+  deriveSharedSecret,
+  encryptPayloadBody,
+  toArrayBuffer,
+} from "./push-crypto";
 import type { Env } from "./types";
 
 /**
@@ -10,49 +18,10 @@ import type { Env } from "./types";
  * (Base64url des 65-Byte-Uncompressed-Points bzw. des 32-Byte-Private-Scalars,
  * wie `npx web-push generate-vapid-keys` sie ausgibt) + `VAPID_SUBJECT`
  * (mailto:). Ohne Keys ist Push deaktiviert und die UI blendet den Toggle aus.
+ *
+ * Die Krypto-Bausteine (HKDF, ECDH, aes128gcm-Record) liegen in
+ * `./push-crypto` – dort testbar mit injizierbaren Keys/Salts.
  */
-
-function base64UrlToBytes(value: string): Uint8Array {
-  const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function concat(...arrays: Uint8Array[]): Uint8Array {
-  const total = arrays.reduce((n, a) => n + a.length, 0);
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const a of arrays) {
-    out.set(a, off);
-    off += a.length;
-  }
-  return out;
-}
-
-/** Kopie als eigenständiger ArrayBuffer (für Web-Crypto-Parameter). */
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return buffer;
-}
-
-async function hkdf(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey("raw", toArrayBuffer(ikm), "HKDF", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: toArrayBuffer(salt), info: toArrayBuffer(info) },
-    key,
-    length * 8
-  );
-  return new Uint8Array(bits);
-}
 
 /** VAPID-JWT (ES256) für den Authorization-Header erzeugen. */
 async function vapidJwt(env: Env, audience: string): Promise<string> {
@@ -110,41 +79,14 @@ async function encryptPayload(
   const clientPub = base64UrlToBytes(p256dh);
   const authSecret = base64UrlToBytes(auth);
 
-  const clientKey = await crypto.subtle.importKey("raw", toArrayBuffer(clientPub), { name: "ECDH", namedCurve: "P-256" }, false, []);
-  const shared = new Uint8Array(
-    await crypto.subtle.deriveBits({ name: "ECDH", public: clientKey } as SubtleCryptoDeriveKeyAlgorithm, serverKeys.privateKey, 256)
-  );
+  // RFC 8291: IKM aus ECDH-Shared-Secret + auth-Secret
+  const shared = await deriveSharedSecret(serverKeys, clientPub);
+  const ikm = await deriveIkm(shared, authSecret);
 
-  // RFC 8291: IKM aus auth-Secret + ECDH-Shared-Secret
-  const AUTH_INFO = new TextEncoder().encode("Content-Encoding: auth\0");
-  const ikm = await hkdf(shared, authSecret, AUTH_INFO, 32);
-
+  // Deterministischer Kern (Header + Record + AES-GCM) aus ./push-crypto
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const KEY_INFO_PREFIX = new TextEncoder().encode("WebPush: info\0");
-  const keyInfo = concat(KEY_INFO_PREFIX, clientPub, serverPub);
+  const body = await encryptPayloadBody(ikm, salt, clientPub, serverPub, payload);
 
-  const CEK_INFO = new TextEncoder().encode("Content-Encoding: aes128gcm\0key");
-  const NONCE_INFO = new TextEncoder().encode("Content-Encoding: aes128gcm\0nonce");
-  const cek = await hkdf(ikm, salt, concat(keyInfo, CEK_INFO), 16);
-  const nonce = await hkdf(ikm, salt, concat(keyInfo, NONCE_INFO), 12);
-
-  // Header: salt(16) || rs(4) || idlen(1) || server_pub(65); rs = 4096
-  const rs = new Uint8Array(4);
-  new DataView(rs.buffer).setUint32(0, 4096, false);
-  const header = concat(salt, rs, new Uint8Array([serverPub.length]), serverPub);
-
-  const key = await crypto.subtle.importKey("raw", toArrayBuffer(cek), { name: "AES-GCM" }, false, ["encrypt"]);
-  // RFC 8188: 2-Byte-Padding-Präambel (0x0000) vor dem eigentlichen Payload
-  const record = concat(new Uint8Array([0, 0]), payload);
-  const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: toArrayBuffer(nonce), additionalData: toArrayBuffer(header), tagLength: 128 },
-      key,
-      toArrayBuffer(record)
-    )
-  );
-
-  const body = concat(header, ciphertext);
   return {
     body,
     headers: {
@@ -203,7 +145,7 @@ interface SubscribeBody {
 /** POST /api/push/subscribe – Web-Push-Subscription des Browsers speichern. */
 export async function handleSubscribe(request: Request, env: Env): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!env.VAPID_PUBLIC_KEY) return json({ error: "Push ist nicht konfiguriert." }, 503);
+    if (!env.VAPID_PUBLIC_KEY) return missingSecret("VAPID_PUBLIC_KEY", 503);
 
     const body = await readJson<SubscribeBody>(request);
     const endpoint = typeof body?.endpoint === "string" && body.endpoint.startsWith("https://") ? body.endpoint : "";

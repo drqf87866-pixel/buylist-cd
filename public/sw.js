@@ -1,9 +1,20 @@
 "use strict";
 
-// Version erhoet (v1 -> v2), damit alte (ggf. mit Fehlerseiten verdorbene)
-// Shell-Caches verworfen werden, sobald dieser Service Worker aktiv wird.
-const SHELL_CACHE = "buylist-shell-v2";
-const SHELL_URLS = ["/", "/index.html", "/app.js", "/style.css", "/data/categories.json", "/manifest.webmanifest"];
+// Version erhoet (v2 -> v3), damit die bei allen Clients veralteten
+// Shell-Caches (Cache-first, alte app.js) verworfen werden, sobald dieser
+// Service Worker aktiv wird. Kuenftige Deployments brauchen keinen Bump mehr:
+// die Shell wird unten stale-while-revalidate bedient.
+const SHELL_CACHE = "buylist-shell-v3";
+const SHELL_URLS = [
+  "/",
+  "/index.html",
+  "/app.js",
+  "/app-core.mjs",
+  "/vendor/qrcode.js",
+  "/style.css",
+  "/data/categories.json",
+  "/manifest.webmanifest",
+];
 
 self.addEventListener("install", (event) => {
   // addAll bricht beim ersten Fehler die gesamte Installation ab. Wir cachen
@@ -26,10 +37,11 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Strategie: Navigationen network-first mit Offline-Fallback auf die gecachte
-// Shell. So kommen Updates sofort durch und Fehlerseiten (4xx/5xx) landen
-// niemals im Cache – genau die Ursache des „PWA ist kaputt“-Bugs.
-// Statische Assets: cache-first, alles /api/* und /ws nur Netz.
+// Strategie: Navigationen network-first mit Offline-Fallback (frische Shell
+// bei jedem Laden). Statische Assets stale-while-revalidate: Cache sofort
+// liefern, im Hintergrund aktualisieren – Updates kommen damit ohne manuelles
+// Cache-Bumpen durch (spätestens beim nächsten Laden), Offline bleibt
+// funktionsfaehig, 4xx/5xx landen niemals im Cache. /api/* und /ws nur Netz.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
@@ -41,7 +53,7 @@ self.addEventListener("fetch", (event) => {
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
-            caches.open(SHELL_CACHE).then((cache) => cache.put("/index.html", copy));
+            event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put("/index.html", copy)));
           }
           return res;
         })
@@ -50,14 +62,25 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  if (event.request.method !== "GET") return;
+
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request).then((res) => {
-      if (res.ok) {
-        const copy = res.clone();
-        caches.open(SHELL_CACHE).then((cache) => cache.put(event.request, copy));
+    caches.match(event.request).then((cached) => {
+      const refresh = fetch(event.request)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(event.request, copy)));
+          }
+          return res;
+        })
+        .catch(() => null);
+      if (cached) {
+        event.waitUntil(refresh);
+        return cached;
       }
-      return res;
-    }))
+      return refresh.then((res) => res || new Response("", { status: 504 }));
+    })
   );
 });
 

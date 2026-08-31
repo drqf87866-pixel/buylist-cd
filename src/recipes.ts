@@ -1,7 +1,7 @@
 import { withAuth } from "./session";
-import { isMember } from "./lists";
+import { checkListAccess } from "./lists";
 import { getPreferences, preferencesPrompt } from "./preferences";
-import { json, readJson, normKey } from "./util";
+import { json, listNotFound, missingSecretMessage, readJson, normKey } from "./util";
 import { sha256Base64Url } from "./crypto";
 import type { Env, Recipe, RecipeIngredient, RecipeStep, UserPreferences } from "./types";
 import categoriesJson from "../public/data/categories.json";
@@ -9,8 +9,8 @@ import categoriesJson from "../public/data/categories.json";
 /** Kategorie-Ids aus dem Wörterbuch + „sonstiges“ als Auffangkategorie. */
 const CATEGORY_IDS: string[] = [...categoriesJson.map((c) => c.id), "sonstiges"];
 
-const GEMINI_MODEL = "gemini-3.5-flash-lite";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+const GEMINI_URL_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Obergrenzen gegen missbräuchlich große Bodies bzw. entgleiste LLM-Antworten
 const MAX_ZUTATEN = 50;
@@ -21,18 +21,6 @@ const GEMINI_TIMEOUT_MS = 45_000;
 // generateRecipe() sich inhaltlich ändern – alte Cache-Einträge werden dann
 // beim nächsten Treffer stillschweigend durch neue ersetzt (kein TTL sonst).
 const CACHE_VERSION = 1;
-
-/** 404 statt 403, damit die Existenz fremder Listen nicht aufscheint. */
-function notFound(): Response {
-  return json({ error: "Liste nicht gefunden." }, 404);
-}
-
-async function checkListAccess(env: Env, listId: string, userId: string): Promise<boolean> {
-  const member = await isMember(env.DB, listId, userId);
-  if (!member) return false;
-  const meta = await env.DB.prepare("SELECT 1 AS x FROM lists WHERE id = ?").bind(listId).first();
-  return meta !== null;
-}
 
 // ---------- Gemini ----------
 
@@ -92,8 +80,14 @@ interface GeminiCallOptions {
  */
 export async function callGeminiJson(env: Env, options: GeminiCallOptions): Promise<unknown> {
   if (!env.GEMINI_API_KEY) {
-    throw new GeminiError(500, "Der Server hat keinen Gemini-API-Key konfiguriert.");
+    // Gleicher Text wie missingSecret() in util.ts (eine Quelle für die Formulierung).
+    throw new GeminiError(500, missingSecretMessage("GEMINI_API_KEY"));
   }
+
+  // Modellname per Env-Var überschreibbar (z. B. fürs Nachziehen neuer
+  // Modelle); Default ist ein aktueller Stable-Modellname (gemini-3.5-flash-lite).
+  const model = env.GEMINI_MODEL ?? GEMINI_MODEL_DEFAULT;
+  const url = `${GEMINI_URL_BASE}/${model}:generateContent`;
 
   const body = {
     systemInstruction: { parts: [{ text: options.systemInstruction }] },
@@ -108,7 +102,7 @@ export async function callGeminiJson(env: Env, options: GeminiCallOptions): Prom
   const timer = setTimeout(() => abort.abort(), GEMINI_TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(GEMINI_URL, {
+    res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
       body: JSON.stringify(body),
@@ -237,6 +231,27 @@ async function writeRecipeCache(env: Env, key: string, recipe: Recipe): Promise<
   }
 }
 
+/** Wie lange ein Cache-Eintrag höchstens liegen bleibt, bevor er im Cron gelöscht wird. */
+const RECIPE_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * Tägliche Bereinigung: löscht Cache-Einträge, die älter als 90 Tage sind,
+ * damit die globale Tabelle nicht unbegrenzt wächst (jede Diät/Allergen/
+ * Portionen-Kombination erzeugt eigene Zeilen).
+ */
+export async function runRecipeCacheCleanup(env: Env): Promise<number> {
+  try {
+    const res = await env.DB.prepare("DELETE FROM recipe_cache WHERE created_at < ?")
+      .bind(Date.now() - RECIPE_CACHE_TTL_MS)
+      .run();
+    return res.meta.changes;
+  } catch (err) {
+    // Ein fehlgeschlagener Cleanup darf den restlichen Cron nicht kippen.
+    console.error("recipe_cache-Bereinigung fehlgeschlagen:", err);
+    return 0;
+  }
+}
+
 /** Fehler mit HTTP-Status und deutscher Nutzermeldung. */
 export class GeminiError extends Error {
   constructor(
@@ -355,7 +370,7 @@ function sanitizeZutatenListe(raw: unknown): string[] {
 /** POST /api/list/:id/generate – ruft Gemini auf und liefert ein Rezept zur Vorschau (kein Speichern). */
 export async function handleGenerate(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const body = await readJson<GenerateBody>(request);
     const gericht = typeof body?.gericht === "string" ? body.gericht.trim().slice(0, 120) : "";
@@ -434,7 +449,7 @@ interface ItemsBody {
 /** POST /api/list/:id/items – legt mehrere Artikel auf die Liste (ohne Rezept zu speichern). */
 export async function handleAddItems(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const body = await readJson<ItemsBody>(request);
     const items = sanitizeItems(body?.items);
@@ -499,7 +514,7 @@ interface SaveBody {
  */
 export async function handleSaveRecipe(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const body = await readJson<SaveBody>(request);
     const recipe = sanitizeRecipe(body, 2);
@@ -529,7 +544,7 @@ interface ZuschaltenBody {
  */
 export async function handleZuschalten(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const body = await readJson<ZuschaltenBody>(request);
     const rawList = Array.isArray(body?.gerichte) ? body.gerichte.slice(0, 20) : [];
@@ -589,7 +604,7 @@ export async function handleZuschalten(request: Request, env: Env, listId: strin
  */
 export async function handleAbschalten(request: Request, env: Env, listId: string, gerichtId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const stub = env.SHOPPING_LIST_DO.get(env.SHOPPING_LIST_DO.idFromName(listId));
     const doRes = await stub.fetch("https://do/remove-gericht", {
@@ -628,7 +643,7 @@ export async function handleGetAllRecipes(request: Request, env: Env): Promise<R
 /** GET /api/list/:id/recipes – alle gespeicherten Rezepte der Liste. */
 export async function handleGetRecipes(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const { results } = await env.DB.prepare(
       `SELECT id, titel, zeit, portionen, zutaten, schritte, created_by, created_at
@@ -644,7 +659,7 @@ export async function handleGetRecipes(request: Request, env: Env, listId: strin
 /** DELETE /api/list/:id/recipes/:recipeId – löscht ein Rezept dieser Liste. */
 export async function handleDeleteRecipe(request: Request, env: Env, listId: string, recipeId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const result = await env.DB.prepare("DELETE FROM recipes WHERE id = ? AND list_id = ?")
       .bind(recipeId, listId)

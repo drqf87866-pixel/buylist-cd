@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit-Tests
+        run: npm test
+
+      - name: D1-Schema lokal anwenden
+        run: npm run db:migrate:local
+
+      - name: Realtime-Test gegen wrangler dev
+        run: |
+          npx wrangler dev --port 8787 &
+          WPID=$!
+          # Auf die Startbereitschaft warten (bis zu ~120 s)
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -s -o /dev/null http://127.0.0.1:8787/ ; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "1" ]; then
+            echo "wrangler dev ist nicht rechtzeitig gestartet"
+            kill $WPID 2>/dev/null || true
+            exit 1
+          fi
+          node scripts/realtime-test.mjs
+          EXIT=$?
+          kill $WPID 2>/dev/null || true
+          exit $EXIT

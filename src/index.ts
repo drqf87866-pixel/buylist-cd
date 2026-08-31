@@ -12,6 +12,7 @@ import {
   handleGetRecipes,
   handleSaveRecipe,
   handleZuschalten,
+  runRecipeCacheCleanup,
 } from "./recipes";
 import { getSessionUser } from "./session";
 import {
@@ -34,9 +35,11 @@ export { RateLimiterDO } from "./do/rate-limiter";
 export default {
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
     // Täglicher Lauf: fällige wiederkehrende Items auf die Listen legen,
-    // danach die 5 Tagesvorschläge pro Nutzer vorgenerieren (rate-limited).
+    // danach die 5 Tagesvorschläge pro Nutzer vorgenerieren (rate-limited),
+    // zuletzt den globalen Rezept-Cache aufräumen (TTL 90 Tage).
     await runRecurringCron(env);
     await runSuggestionsCron(env);
+    await runRecipeCacheCleanup(env);
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {

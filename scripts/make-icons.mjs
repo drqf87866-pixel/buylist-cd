@@ -2,6 +2,8 @@
  * Erzeugt die PWA-Icons (icon-192.png, icon-512.png) als einfache PNGs –
  * warmes Papier als Hintergrund, grünes Häkchen. Kein Canvas nötig:
  * PNG wird per Hand kodiert (zlib ist in Node eingebaut).
+ * Zusätzlich maskable-Varianten (Motiv in der inneren 80 %-Safe-Zone),
+ * damit Android-Rundmasken das Häkchen nicht anschneiden.
  *
  * Ausführen: node scripts/make-icons.mjs
  */
@@ -90,8 +92,9 @@ function checkmarkAlpha(x01, y01, thickness01) {
   return Math.min(d1, d2) <= thickness01 ? 1 : 0;
 }
 
-function makeIcon(size) {
-  const leafRadius = size * 0.5; // grüner Kreis
+function makeIcon(size, maskable = false) {
+  // Maskable: Motiv in die Safe-Zone (innere 80 %-Kreisfläche) skalieren.
+  const leafRadius = size * (maskable ? 0.4 : 0.5);
   const center = size / 2;
   const thick = size * 0.09;
   return encodePng(size, size, (x, y) => {
@@ -107,4 +110,6 @@ function makeIcon(size) {
 for (const size of [192, 512]) {
   writeFileSync(join(OUT_DIR, `icon-${size}.png`), makeIcon(size));
   console.log(`icon-${size}.png geschrieben (${size}x${size})`);
+  writeFileSync(join(OUT_DIR, `icon-maskable-${size}.png`), makeIcon(size, true));
+  console.log(`icon-maskable-${size}.png geschrieben (${size}x${size}, Safe-Zone)`);
 }

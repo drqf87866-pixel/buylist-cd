@@ -1,6 +1,6 @@
 import { randomToken } from "./crypto";
 import { withAuth } from "./session";
-import { json, readJson } from "./util";
+import { json, listNotFound, readJson } from "./util";
 import type { Env, PublicUser } from "./types";
 
 interface ListRow {
@@ -35,8 +35,8 @@ export async function getListMeta(db: D1Database, listId: string): Promise<ListR
 }
 
 /** 404 statt 403, damit die Existenz fremder Listen nicht aufscheint. */
-function notFound(): Response {
-  return json({ error: "Liste nicht gefunden." }, 404);
+export async function checkListAccess(env: Env, listId: string, userId: string): Promise<boolean> {
+  return (await isMember(env.DB, listId, userId)) && (await getListMeta(env.DB, listId)) !== null;
 }
 
 export async function handleGetLists(request: Request, env: Env): Promise<Response> {
@@ -96,7 +96,7 @@ export async function handleCreateList(request: Request, env: Env): Promise<Resp
 export async function handleSnapshot(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     const meta = await getListMeta(env.DB, listId);
-    if (!meta || !(await isMember(env.DB, listId, user.id))) return notFound();
+    if (!meta || !(await isMember(env.DB, listId, user.id))) return listNotFound();
 
     const stub = env.SHOPPING_LIST_DO.get(env.SHOPPING_LIST_DO.idFromName(listId));
     return stub.fetch(`https://do/snapshot?id=${encodeURIComponent(listId)}&name=${encodeURIComponent(meta.name)}`);
@@ -106,7 +106,7 @@ export async function handleSnapshot(request: Request, env: Env, listId: string)
 export async function handleInvite(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     const meta = await getListMeta(env.DB, listId);
-    if (!meta || !(await isMember(env.DB, listId, user.id))) return notFound();
+    if (!meta || !(await isMember(env.DB, listId, user.id))) return listNotFound();
 
     const origin = new URL(request.url).origin;
     return json({ url: `${origin}/join/${meta.invite_token}` });
@@ -175,7 +175,7 @@ export async function deleteListCompletely(env: Env, listId: string): Promise<bo
 export async function handleDeleteList(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     const meta = await getListMeta(env.DB, listId);
-    if (!meta || !(await isMember(env.DB, listId, user.id))) return notFound();
+    if (!meta || !(await isMember(env.DB, listId, user.id))) return listNotFound();
     const role = await getRole(env.DB, listId, user.id);
     if (role !== "owner" && meta.owner_id !== user.id) {
       return json({ error: "Nur der Owner kann die Liste löschen.", role: role ?? null }, 403);

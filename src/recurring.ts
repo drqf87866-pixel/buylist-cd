@@ -1,6 +1,6 @@
 import { withAuth } from "./session";
-import { isMember } from "./lists";
-import { json, readJson } from "./util";
+import { checkListAccess } from "./lists";
+import { json, listNotFound, readJson } from "./util";
 import type { Env } from "./types";
 
 const MIN_INTERVALL_TAGE = 1;
@@ -35,22 +35,10 @@ function rowToRecurring(row: RecurringRow): RecurringItem {
   };
 }
 
-/** 404 statt 403, damit die Existenz fremder Listen nicht aufscheint. */
-function notFound(): Response {
-  return json({ error: "Liste nicht gefunden." }, 404);
-}
-
-async function checkListAccess(env: Env, listId: string, userId: string): Promise<boolean> {
-  const member = await isMember(env.DB, listId, userId);
-  if (!member) return false;
-  const meta = await env.DB.prepare("SELECT 1 AS x FROM lists WHERE id = ?").bind(listId).first();
-  return meta !== null;
-}
-
 /** GET /api/list/:id/recurring – alle Regeln einer Liste. */
 export async function handleGetRecurring(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const { results } = await env.DB.prepare(
       "SELECT id, list_id, name, menge, intervall_tage, zuletzt_hinzugefuegt FROM recurring_items WHERE list_id = ? ORDER BY created_at"
@@ -71,7 +59,7 @@ interface RecurringBody {
 /** POST /api/list/:id/recurring – neue Regel anlegen. */
 export async function handleCreateRecurring(request: Request, env: Env, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const body = await readJson<RecurringBody>(request);
     const name = typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
@@ -102,12 +90,12 @@ export async function handleCreateRecurring(request: Request, env: Env, listId: 
 /** DELETE /api/list/:id/recurring/:ruleId – Regel löschen. */
 export async function handleDeleteRecurring(request: Request, env: Env, listId: string, ruleId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
-    if (!(await checkListAccess(env, listId, user.id))) return notFound();
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const result = await env.DB.prepare("DELETE FROM recurring_items WHERE id = ? AND list_id = ?")
       .bind(ruleId, listId)
       .run();
-    if (!result.meta.changes) return notFound();
+    if (!result.meta.changes) return listNotFound();
 
     return json({ ok: true });
   });

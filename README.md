@@ -107,7 +107,14 @@ wrangler secret put VAPID_SUBJECT      # z. B. mailto:du@example.com
 ```
 
 Die PWA-Icons (`public/icon-192.png`, `public/icon-512.png`) lassen sich per
-`node scripts/make-icons.mjs` neu erzeugen.
+`node scripts/make-icons.mjs` neu erzeugen (erzeugt auch die
+maskable-Varianten `icon-maskable-*.png`).
+
+### Gemini-Modell
+
+Der Modellname für die Rezept-/Vorschlags-Generierung ist als Worker-Secret
+`GEMINI_MODEL` überschreibbar (Default: `gemini-3.5-flash-lite`, ein aktueller
+Stable-Modellname). So lassen sich neue Modelle ohne Code-Änderung nachziehen.
 
 ## Deployment
 

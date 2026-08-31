@@ -4,12 +4,28 @@
   const $app = document.getElementById("app");
   const SVG_NS = "http://www.w3.org/2000/svg";
 
+  // Gemeinsame, unit-getestete Helfer aus app-core.mjs (Modul setzt window.BC,
+  // Modul-Scripts laufen vor den deferierten klassischen Scripts).
+  const {
+    SONSTIGES,
+    normKey,
+    parseSteps,
+    scaleMenge,
+    fmtTimer,
+    formatTimer,
+    relTime,
+    classify,
+    categoryLabel,
+    categoryOrder,
+  } = window.BC;
+
   const state = {
     user: null, // null = ausgeloggt, sonst PublicUser
     booted: false,
   };
 
   let listConn = null; // aktive WebSocket-Verbindung der Listen-Ansicht
+  let currentListId = null; // Liste, zu der listConn gehört (für Undo-Absicherung)
   let closeActiveSwipe = null; // offene Swipe-Zelle der aktuellen Liste zumachen
 
   // ---------- Helfer ----------
@@ -54,7 +70,11 @@
   }
 
   let toastTimer = null;
-  function toast(message) {
+  /**
+   * Toast mit optionaler Aktion (z. B. „Rückgängig“): mit Aktion bleibt der
+   * Toast länger sichtbar; der Klick schließt ihn sofort und ruft onTap.
+   */
+  function toast(message, opts = {}) {
     let node = document.querySelector(".toast");
     if (!node) {
       node = el("div", { class: "toast", role: "status" });
@@ -63,7 +83,19 @@
     node.textContent = message;
     node.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => node.classList.remove("show"), 2500);
+    const duration = opts.action ? 5000 : 2500;
+    toastTimer = setTimeout(() => node.classList.remove("show"), duration);
+
+    node.querySelector(".toast-action")?.remove();
+    if (opts.action) {
+      const btn = el("button", { class: "toast-action", type: "button", text: opts.action.label });
+      btn.addEventListener("click", () => {
+        clearTimeout(toastTimer);
+        node.classList.remove("show");
+        opts.action.onTap();
+      });
+      node.append(btn);
+    }
   }
 
   // Löschen mit Bestätigung: erster Tap bewaffnet (3 s), zweiter Tap führt aus.
@@ -112,19 +144,73 @@
     return btn;
   }
 
-  // Bottom-Sheet: Background-Tap, Esc oder close() schließt.
+  // Bottom-Sheet: Background-Tap, Esc oder close() schließt. Fokus wird beim
+  // Öffnen ins Sheet geholt und per Tab-Falle dort gehalten; der Hintergrund
+  // bekommt aria-hidden, solange das Sheet offen ist.
   function openSheet(build) {
     const backdrop = el("div", { class: "sheet-backdrop" });
     const sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
-    const onKey = (event) => {
-      if (event.key === "Escape") close();
-    };
+    const previouslyFocused = document.activeElement;
+    let closed = false;
+
+    function focusables() {
+      return [...sheet.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )].filter((n) => !n.disabled && n.offsetParent !== null);
+    }
+
+    // Tab/Shift+Tab innerhalb des Sheets zirkulieren lassen.
+    function trapFocus(event) {
+      if (event.key !== "Tab") return;
+      const list = focusables();
+      if (!list.length) {
+        event.preventDefault();
+        sheet.setAttribute("tabindex", "-1");
+        sheet.focus();
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || !sheet.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !sheet.contains(active)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    // Hintergrund-Inhalte (App, Navigation) für Screenreader ausblenden –
+    // Overlays wie den Toast ausgenommen, da sie über allem liegen.
+    function setBackgroundHidden(hidden) {
+      for (const child of document.body.children) {
+        if (child === backdrop || child.classList?.contains("toast")) continue;
+        if (hidden) child.setAttribute("aria-hidden", "true");
+        else child.removeAttribute("aria-hidden");
+      }
+    }
+
     function close() {
+      if (closed) return;
+      closed = true;
       document.removeEventListener("keydown", onKey);
+      setBackgroundHidden(false);
       backdrop.classList.remove("open");
       sheet.classList.remove("open");
       setTimeout(() => backdrop.remove(), 220);
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
     }
+
+    const onKey = (event) => {
+      if (event.key === "Escape") close();
+      else trapFocus(event);
+    };
+
     document.addEventListener("keydown", onKey);
     backdrop.addEventListener("click", (event) => {
       if (event.target === backdrop) close();
@@ -132,72 +218,21 @@
     build(sheet, close);
     backdrop.append(sheet);
     document.body.append(backdrop);
+    setBackgroundHidden(true);
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         backdrop.classList.add("open");
         sheet.classList.add("open");
+        const first = focusables()[0];
+        if (first) first.focus();
       })
     );
   }
 
   // ---------- Gemeinsame Helfer für Verlauf & Kochmodus ----------
-
-  // Duplikat-Schlüssel wie im Durable Object: „  Milch “ == „milch“
-  function normKey(name) {
-    return name.trim().replace(/\s+/g, " ").toLowerCase();
-  }
-
-  // Kochschritte: neuer Stand {text, timerSekunden?}, alter Stand reiner String
-  function parseSteps(raw) {
-    if (!Array.isArray(raw)) return [];
-    const out = [];
-    for (const entry of raw) {
-      if (typeof entry === "string") {
-        if (entry.trim()) out.push({ text: entry.trim() });
-      } else if (entry && typeof entry === "object" && typeof entry.text === "string" && entry.text.trim()) {
-        const step = { text: entry.text.trim() };
-        if (typeof entry.timerSekunden === "number" && entry.timerSekunden > 0) {
-          step.timerSekunden = Math.min(7200, Math.round(entry.timerSekunden));
-        }
-        out.push(step);
-      }
-    }
-    return out;
-  }
-
-  // Führende Zahl einer Freitext-Menge hochrechnen ("500 g" → "750 g")
-  function scaleMenge(menge, factor) {
-    if (!menge || factor === 1 || !Number.isFinite(factor) || factor <= 0) return menge;
-    const match = menge.match(/^(\d+(?:[.,]\d+)?)(.*)$/);
-    if (!match) return menge;
-    const scaled = Number.parseFloat(match[1].replace(",", ".")) * factor;
-    if (!Number.isFinite(scaled)) return menge;
-    return `${Math.round(scaled * 100) / 100}`.replace(".", ",") + match[2];
-  }
-
-  function fmtTimer(sekunden) {
-    const min = Math.round(sekunden / 60);
-    if (min < 60) return `⏱ ${min} min`;
-    const h = Math.floor(min / 60);
-    const rest = min % 60;
-    return `⏱ ${h} h${rest ? ` ${rest} min` : ""}`;
-  }
-
-  function relTime(ts) {
-    const min = Math.floor((Date.now() - ts) / 60000);
-    if (min < 1) return "gerade eben";
-    if (min < 60) return `vor ${min} Min.`;
-    const hours = Math.floor(min / 60);
-    if (hours < 24) return `vor ${hours} ${hours === 1 ? "Stunde" : "Stunden"}`;
-    const days = Math.floor(hours / 24);
-    if (days === 1) return "gestern";
-    if (days < 7) return `vor ${days} Tagen`;
-    const weeks = Math.floor(days / 7);
-    if (weeks === 1) return "vor 1 Woche";
-    if (weeks < 5) return `vor ${weeks} Wochen`;
-    const months = Math.floor(days / 30);
-    return months <= 1 ? "vor einem Monat" : `vor ${months} Monaten`;
-  }
+  // Reine Helfer (normKey, parseSteps, scaleMenge, fmtTimer, formatTimer,
+  // relTime, classify, categoryLabel, categoryOrder, SONSTIGES) kommen aus
+  // app-core.mjs (Modul setzt window.BC; dort auch unit-getestet).
 
   // Kurzer Signalton für den Ablauf eines Koch-Timers (nur nach Nutzerinteraktion)
   function cookBeep() {
@@ -221,7 +256,6 @@
   // ---------- Kategorien (Wörterbuch: public/data/categories.json) ----------
 
   // Wird in boot() geladen; leer = alles läuft unter „Sonstiges“.
-  const SONSTIGES = "sonstiges";
   let categoryData = [];
 
   async function loadCategories() {
@@ -231,31 +265,6 @@
     } catch {
       // Wörterbuch fehlt → Artikel laufen unter „Sonstiges“, App bleibt funktionsfähig
     }
-  }
-
-  // Längster Stichwort-Treffer gewinnt („kokosmilch“ → Vorrat, „milch“ → Molkerei)
-  function classify(name) {
-    const n = normKey(name);
-    let best = null;
-    let bestLen = 0;
-    for (const cat of categoryData) {
-      for (const kw of cat.keywords) {
-        if (kw.length > bestLen && n.includes(kw)) {
-          best = cat.id;
-          bestLen = kw.length;
-        }
-      }
-    }
-    return best;
-  }
-
-  function categoryLabel(id) {
-    const cat = categoryData.find((c) => c.id === id);
-    return cat ? cat.label : "Sonstiges";
-  }
-
-  function categoryOrder() {
-    return [...categoryData.map((c) => c.id), SONSTIGES];
   }
 
   // ---------- Router ----------
@@ -305,17 +314,26 @@
 
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // controllerchange feuert erst, wenn der neue Service Worker die Seite
+      // wirklich kontrolliert (skipWaiting + clients.claim) – der Reload laedt
+      // die frische Shell ueber den neuen SW, keine alt/neu-Mischung.
+      // hadController verhindert den Reload beim allerersten Install.
+      if (hadController && !reloading) {
+        reloading = true;
+        window.location.reload();
+      }
+    });
     navigator.serviceWorker.register("/sw.js").then((reg) => {
-      // Neuen Service Worker sofort übernehmen und die Seite einmal neu laden,
-      // damit niemand auf der alten (ggf. defekten) App-Shell hängen bleibt.
-      reg.addEventListener("updatefound", () => {
-        const worker = reg.installing;
-        worker?.addEventListener("statechange", () => {
-          if (worker.state === "activated" && navigator.serviceWorker.controller) {
-            window.location.reload();
-          }
-        });
+      // Updates auch in dauerhaft offenen Tabs/PWA-Fenstern finden: beim
+      // Sichtbarwerden und im 30-Minuten-Takt pruefen.
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) check();
       });
+      setInterval(check, 30 * 60 * 1000);
     }).catch(() => {
       // SW ist optional – die App funktioniert auch ohne.
     });
@@ -456,7 +474,18 @@
       return renderAuth("login", "Zum Ansehen musst du eingeloggt sein.");
     }
 
-    if (path === "/") return renderLists();
+    if (path === "/") {
+      // Home-Screen-Shortcut „Schnell hinzufügen“ (?add=1): zur zuletzt
+      // geöffneten Liste springen und dort den Add-Bar fokussieren.
+      if (new URLSearchParams(location.search).has("add")) {
+        const last = localStorage.getItem("bl-last-list");
+        if (last) {
+          navigate(`/list/${last}?add=1`, { replace: true });
+          return;
+        }
+      }
+      return renderLists();
+    }
     if (path === "/rezepte") return renderRecipes();
     if (path === "/profil") return renderProfile();
 
@@ -998,22 +1027,26 @@
 
   // ---------- Rezept-Karte (Rezepte-Tab) ----------
 
-  function recipeCard(recipe) {
+  /** Gemeinsames Karten-Grundgerüst für gespeicherte Rezepte und Tagesvorschläge. */
+  function recipeCardBase({ title, subText, actions, extraClass = "" }) {
     return el(
       "div",
-      { class: "card recent-recipe-card" },
+      { class: "card recent-recipe-card" + (extraClass ? ` ${extraClass}` : "") },
       el(
         "div",
         { class: "recent-recipe-main" },
-        el("span", { class: "recipe-title", text: recipe.titel }),
-        el("span", {
-          class: "recipe-sub muted",
-          text: [recipeMetaText(recipe), `📖 ${recipe.listName}`].filter(Boolean).join(" · "),
-        })
+        el("span", { class: "recipe-title", text: title }),
+        ...subText.map((text) => el("span", { class: "recipe-sub muted", text }))
       ),
-      el(
-        "div",
-        { class: "recipe-actions" },
+      el("div", { class: "recipe-actions" }, ...actions)
+    );
+  }
+
+  function recipeCard(recipe) {
+    return recipeCardBase({
+      title: recipe.titel,
+      subText: [[recipeMetaText(recipe), `📖 ${recipe.listName}`].filter(Boolean).join(" · ")],
+      actions: [
         el("a", {
           class: "btn primary recipe-cook",
           "data-link": "",
@@ -1025,9 +1058,9 @@
           type: "button",
           text: "🛒 Auf die Liste",
           onclick: () => openZuschaltenSheet(recipe),
-        })
-      )
-    );
+        }),
+      ],
+    });
   }
 
   /** Topbar der Tab-Ansichten: Titel mittig, beide Seiten als Platzhalter. */
@@ -1282,27 +1315,19 @@
     const cards = el("div", { class: "recent-recipes" }, el("p", { class: "muted empty", text: "Lade Vorschläge…" }));
 
     function suggestionCard(v) {
-      return el(
-        "div",
-        { class: "card recent-recipe-card suggestion-card" },
-        el(
-          "div",
-          { class: "recent-recipe-main" },
-          el("span", { class: "recipe-title", text: v.titel }),
-          el("span", { class: "recipe-sub muted", text: v.beschreibung }),
-          v.zeit ? el("span", { class: "recipe-sub muted", text: `⏱ ${v.zeit}` }) : null
-        ),
-        el(
-          "div",
-          { class: "recipe-actions" },
+      return recipeCardBase({
+        title: v.titel,
+        subText: [v.beschreibung, v.zeit ? `⏱ ${v.zeit}` : null].filter(Boolean),
+        extraClass: "suggestion-card",
+        actions: [
           el("button", {
             class: "btn primary recipe-cook",
             type: "button",
             text: "✨ Rezept erstellen",
             onclick: () => onRezeptErstellen(v.titel),
-          })
-        )
-      );
+          }),
+        ],
+      });
     }
 
     function errorState(message) {
@@ -1517,7 +1542,16 @@
       listConn.close();
       listConn = null;
     }
+    currentListId = null;
     closeActiveSwipe = null;
+    // Undo-Toast ist nur für die aktuelle Listen-Ansicht gültig – beim
+    // Verlassen ausblenden, damit kein „Rückgängig“ die falsche Liste trifft.
+    const toastNode = document.querySelector(".toast");
+    if (toastNode) {
+      clearTimeout(toastTimer);
+      toastNode.classList.remove("show");
+      toastNode.querySelector(".toast-action")?.remove();
+    }
   }
 
   // Kochmodus: Wake-Lock und Timer-Intervall beim Verlassen der Route freigeben
@@ -1530,23 +1564,118 @@
     }
   }
 
-  async function renderList(listId) {
-    // Für den Koch-Assistenten auf der Startseite: zuletzt geöffnete Liste als Default
-    localStorage.setItem("bl-last-list", listId);
+  // ---------- Listen-Ansicht: wiederverwendbare Bausteine ----------
 
-    const items = []; // Server-Stand (wird bei jedem sync ersetzt)
-    const history = []; // „Zuletzt gekauft“ aus dem Server-Stand
-    const pendingAdds = []; // optimistisch hinzugefügte Artikel, warten auf den sync
-    const aktiveGerichte = []; // zugeschaltete Gerichte (Zustand liegt im DO)
-    let popId = null; // Artikel, dessen Abhak-Animation beim nächsten refresh() läuft
+  // Swipe-Geste: horizontales Aufziehen legt die Löschen-Fläche dahinter bloß,
+  // vertikales Scrollen bleibt unberührt (touch-action: pan-y).
+  const SWIPE_MAX = 88;
+  let openSwipe = null;
 
-    // ---------- Topbar ----------
+  function closeOpenSwipe() {
+    if (!openSwipe) return;
+    openSwipe.close();
+    openSwipe = null;
+  }
 
-    const statusDot = el("span", { class: "status-dot connecting" });
-    const statusText = el("span", { class: "status-text", text: "Verbinde…" });
-    const chipLabel = el("span", { class: "list-chip-label", text: "…" });
-    const progressFill = el("div", { class: "progress-fill" });
-    const progressText = el("span", { class: "progress-text" });
+  function checkSvg() {
+    return el(
+      "svg",
+      { class: "check-svg", viewBox: "0 0 30 30", "aria-hidden": "true" },
+      el("circle", { class: "ring", cx: "15", cy: "15", r: "13" }),
+      el("path", { class: "check-path", d: "M9 15.5l4 4L21 10.5" })
+    );
+  }
+
+  function skeletonCells() {
+    return [0, 1, 2, 3].map(() =>
+      el(
+        "li",
+        { class: "swipe-cell skeleton-cell", "aria-hidden": "true" },
+        el(
+          "div",
+          { class: "swipe-content" },
+          el("span", { class: "skeleton-circle" }),
+          el("span", { class: "skeleton-lines" }, el("span", { class: "skeleton-line" }), el("span", { class: "skeleton-line short" }))
+        )
+      )
+    );
+  }
+
+  function attachSwipe(cell, content) {
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let tracking = false;
+    let horizontal = null;
+
+    const setX = (x, animate) => {
+      content.style.transition = animate ? "" : "none";
+      content.style.transform = x ? `translateX(${x}px)` : "";
+      cell.classList.toggle("swiped", x < 0); // Löschen-Fläche nur sichtbar, wenn wirklich offen
+    };
+    const close = () => setX(0, true);
+    // Nach einer echten Zieh-Bewegung den danach folgenden Klick schlucken.
+    const swallowClick = () => {
+      const swallow = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+      content.addEventListener("click", swallow, true);
+      setTimeout(() => content.removeEventListener("click", swallow, true), 400);
+    };
+
+    content.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      dx = 0;
+      horizontal = null;
+      tracking = true;
+    });
+
+    content.addEventListener("pointermove", (event) => {
+      if (!tracking) return;
+      const mx = event.clientX - startX;
+      const my = event.clientY - startY;
+      if (horizontal === null) {
+        if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
+        if (Math.abs(mx) <= Math.abs(my)) {
+          tracking = false; // vertikales Scrollen gewinnt
+          return;
+        }
+        horizontal = true;
+        try {
+          content.setPointerCapture(event.pointerId);
+        } catch {
+          // nicht schlimm – Ziehen funktioniert trotzdem
+        }
+        closeOpenSwipe();
+        openSwipe = { close, cell };
+        content.classList.add("dragging");
+        swallowClick();
+      }
+      dx = Math.max(-SWIPE_MAX, Math.min(0, mx)); // nur nach links
+      setX(dx, false);
+    });
+
+    const finish = () => {
+      if (!tracking) return;
+      tracking = false;
+      if (horizontal !== true) return;
+      content.classList.remove("dragging");
+      if (dx >= -SWIPE_MAX * 0.4) {
+        setX(0, true);
+        if (openSwipe?.close === close) openSwipe = null;
+      }
+    };
+    content.addEventListener("pointerup", finish);
+    content.addEventListener("pointercancel", finish);
+  }
+
+  /** Topbar der Listendetail-Ansicht; refs/aufrufe stammen aus renderList. */
+  function renderTopbar(refs, callbacks) {
+    const { statusDot, statusText, chipLabel, progressFill, progressText } = refs;
+    const { openMembersSheet, openListSwitcher, openHistorySheet } = callbacks;
 
     // Einstieg zum Verlauf: die bisher tote Fortschrittszeile wird antippbar
     const progressBtn = el(
@@ -1569,7 +1698,7 @@
       el("span", { class: "list-chip-caret", "aria-hidden": "true", text: "▾" })
     );
 
-    const header = el(
+    return el(
       "header",
       { class: "topbar" },
       el(
@@ -1593,6 +1722,249 @@
         el("span", { class: "status" }, statusDot, statusText)
       )
     );
+  }
+
+  /** Add-Bar: baut das Formular; onSubmit bekommt {name, menge} und räumt selbst auf. */
+  function buildAddBar(onSubmit) {
+    const nameInput = el("input", {
+      class: "input",
+      type: "text",
+      placeholder: "Artikel, z. B. Milch",
+      maxlength: "120",
+      autocomplete: "off",
+      enterkeyhint: "send",
+    });
+    const mengeInput = el("input", {
+      class: "input menge",
+      type: "text",
+      placeholder: "2× / 500g",
+      maxlength: "40",
+      autocomplete: "off",
+    });
+    const addBtn = el("button", { class: "btn primary add-btn", type: "submit", "aria-label": "Artikel hinzufügen", text: "+" });
+
+    const form = el(
+      "form",
+      {
+        class: "add-bar",
+        onsubmit: (event) => {
+          event.preventDefault();
+          const name = nameInput.value.trim();
+          const menge = mengeInput.value.trim();
+          if (!name) {
+            nameInput.focus();
+            return;
+          }
+          onSubmit({ name, menge });
+        },
+      },
+      nameInput,
+      mengeInput,
+      addBtn
+    );
+
+    return { form, nameInput, mengeInput };
+  }
+
+  /**
+   * Artikel-Controller: Rendering, Swipe, Abhaken, Löschen, Aufräumen und die
+   * Fortschrittsanzeige. items/pendingAdds werden als Referenz übergeben und
+   * von außen (sync, optimistische Adds) befüllt.
+   */
+  function createItemListController(cfg) {
+    const { items, pendingAdds, progressText, progressFill, emptyEl, itemsEl, onItemRemoved } = cfg;
+    let popId = null; // Artikel, dessen Abhak-Animation beim nächsten refresh() läuft
+
+    const doneLabel = el("span", { class: "done-label" });
+    const doneClear = deleteButton({
+      cls: "done-clear",
+      caption: "Entfernen",
+      confirmText: "Wirklich entfernen?",
+      ariaLabel: "Erledigte Artikel entfernen",
+      onConfirm: clearDoneItems,
+    });
+    const doneDivider = el("li", { class: "done-divider", hidden: true }, doneLabel, doneClear);
+
+    function renderItem(item) {
+      const li = el("li", {
+        class: "swipe-cell" + (item.erledigt ? " done" : "") + (item.pending ? " pending" : ""),
+      });
+      const content = el("div", { class: "swipe-content" });
+
+      const checkbox = el(
+        "button",
+        {
+          class: "checkbox" + (item.erledigt ? " checked" : "") + (item.pending ? " pending" : ""),
+          type: "button",
+          "aria-pressed": String(item.erledigt),
+          "aria-label": item.pending
+            ? "Wird hinzugefügt…"
+            : item.erledigt
+              ? "Als offen markieren"
+              : "Als erledigt abhaken",
+          disabled: item.pending ? "" : undefined,
+        },
+        checkSvg()
+      );
+      checkbox.addEventListener("click", () => {
+        if (item.pending) return;
+        item.erledigt = !item.erledigt;
+        popId = item.erledigt ? item.id : null; // Animation nur beim Abhaken
+        listConn?.send({ type: "toggle", itemId: item.id, erledigt: item.erledigt });
+        refresh();
+      });
+
+      const remove = () => removeItem(item, li);
+      const swipeDelete = deleteButton({
+        cls: "swipe-delete",
+        icon: "🗑",
+        caption: "Löschen",
+        confirmText: "Sicher?",
+        ariaLabel: "Artikel löschen",
+        onConfirm: remove,
+        oneTap: true, // Swipe zum Freilegen ist bereits die Bestätigung
+      });
+
+      content.append(
+        checkbox,
+        el(
+          "div",
+          { class: "item-main" },
+          el("span", { class: "item-name", text: item.name }),
+          el("span", {
+            class: "item-meta",
+            text: item.pending ? "wird hinzugefügt…" : [item.menge, `von ${item.hinzugefuegtVon}`].filter(Boolean).join(" · "),
+          })
+        )
+      );
+
+      // Desktop/Tastatur: Papierkorb am Zeilenende (Hover/Fokus), gleiche Bestätigung
+      if (!item.pending) {
+        content.append(
+          deleteButton({
+            cls: "delete-btn",
+            icon: "🗑",
+            caption: "",
+            confirmText: "Sicher?",
+            ariaLabel: "Artikel löschen",
+            onConfirm: remove,
+            oneTap: true,
+          })
+        );
+      }
+
+      li.append(el("div", { class: "swipe-action" }, swipeDelete), content);
+      attachSwipe(li, content);
+
+      if (popId === item.id) {
+        popId = null;
+        if (item.erledigt) {
+          li.classList.add("just-done");
+          content.querySelector(".checkbox")?.classList.add("pop");
+        }
+        li.classList.add("pop-settle");
+      }
+      return li;
+    }
+
+    function removeItem(item, li) {
+      if (item.pending) {
+        // noch nicht bestätigt – nur lokal wegnehmen
+        const idx = pendingAdds.indexOf(item);
+        if (idx >= 0) pendingAdds.splice(idx, 1);
+        refresh();
+        return;
+      }
+      const idx = items.findIndex((i) => i.id === item.id);
+      if (idx >= 0) items.splice(idx, 1);
+      listConn?.send({ type: "delete", itemId: item.id });
+      li.classList.add("removing");
+      setTimeout(() => refresh(), 170);
+      onItemRemoved?.(item);
+    }
+
+    function clearDoneItems() {
+      const doneItems = items.filter((i) => i.erledigt);
+      if (!doneItems.length) return;
+      for (const it of doneItems) listConn?.send({ type: "delete", itemId: it.id });
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].erledigt) items.splice(i, 1);
+      }
+      refresh();
+      toast(`${doneItems.length} erledigte${doneItems.length === 1 ? "r Artikel" : " Artikel"} entfernt`);
+    }
+
+    function refresh() {
+      closeOpenSwipe();
+      const open = [];
+      const done = [];
+      for (const it of items) (it.erledigt ? done : open).push(it);
+      done.sort((a, b) => a.timestamp - b.timestamp);
+      const openAll = [...open, ...pendingAdds];
+
+      // Nach Kategorie gruppieren (feste Markt-Reihenfolge), im Gruppenuntergang
+      // nach Zeit; Header nur ab zwei Gruppen, damit Ein-Kategorie-Listen ruhig bleiben.
+      const order = categoryOrder(categoryData);
+      const groups = new Map();
+      for (const it of openAll) {
+        const id = it.kategorie && order.includes(it.kategorie) ? it.kategorie : SONSTIGES;
+        if (!groups.has(id)) groups.set(id, []);
+        groups.get(id).push(it);
+      }
+      for (const group of groups.values()) group.sort((a, b) => a.timestamp - b.timestamp);
+
+      const frag = document.createDocumentFragment();
+      const groupIds = order.filter((id) => groups.has(id));
+      const showHeaders = groupIds.length > 1;
+      for (const id of groupIds) {
+        if (showHeaders) {
+          frag.append(el("li", { class: "cat-divider" }, el("span", { class: "cat-label", text: categoryLabel(id, categoryData) })));
+        }
+        for (const it of groups.get(id)) frag.append(renderItem(it));
+      }
+
+      doneDivider.hidden = done.length === 0;
+      if (done.length) {
+        doneLabel.textContent = `Erledigt · ${done.length}`;
+        frag.append(doneDivider);
+        for (const it of done) frag.append(renderItem(it));
+      } else {
+        doneClear.reset?.();
+      }
+      itemsEl.replaceChildren(frag);
+
+      const total = items.length;
+      progressText.textContent = total ? `${done.length} von ${total} erledigt` : "";
+      progressFill.style.width = total ? `${Math.round((done.length / total) * 100)}%` : "0%";
+      emptyEl.hidden = total > 0 || pendingAdds.length > 0;
+    }
+
+    // Nur refresh wird von außen gebraucht; removeItem/clearDoneItems/doneDivider
+    // bleiben intern (doneClear.onConfirm und renderItem greifen darauf zu).
+    return { refresh };
+  }
+
+  async function renderList(listId) {
+    // Für den Koch-Assistenten auf der Startseite: zuletzt geöffnete Liste als Default
+    localStorage.setItem("bl-last-list", listId);
+
+    const items = []; // Server-Stand (wird bei jedem sync ersetzt)
+    const history = []; // „Zuletzt gekauft“ aus dem Server-Stand
+    const pendingAdds = []; // optimistisch hinzugefügte Artikel, warten auf den sync
+    const aktiveGerichte = []; // zugeschaltete Gerichte (Zustand liegt im DO)
+
+    // ---------- Topbar ----------
+
+    const statusDot = el("span", { class: "status-dot connecting" });
+    const statusText = el("span", { class: "status-text", text: "Verbinde…" });
+    const chipLabel = el("span", { class: "list-chip-label", text: "…" });
+    const progressFill = el("div", { class: "progress-fill" });
+    const progressText = el("span", { class: "progress-text" });
+
+    const header = renderTopbar(
+      { statusDot, statusText, chipLabel, progressFill, progressText },
+      { openMembersSheet, openListSwitcher, openHistorySheet }
+    );
 
     async function shareInvite() {
       try {
@@ -1611,6 +1983,28 @@
     // ---------- Mitglieder-Verwaltung (Bottom-Sheet) ----------
 
     function openMembersSheet() {
+      const qrWrap = el("div", { class: "qr-wrap", hidden: true });
+      async function showQr() {
+        if (!qrWrap.hidden) {
+          qrWrap.hidden = true;
+          return;
+        }
+        try {
+          const data = await api(`/api/list/${listId}/invite`);
+          qrWrap.replaceChildren();
+          const qr = qrcode(0, "M");
+          qr.addData(data.url);
+          qr.make();
+          qrWrap.append(
+            el("img", { class: "qr-img", src: qr.createDataURL(6, 14), alt: "QR-Code mit Einladungslink", width: "220", height: "220" }),
+            el("p", { class: "muted qr-hint", text: "Mit der Kamera scannen – führt zum Einladungslink." })
+          );
+          qrWrap.hidden = false;
+        } catch (err) {
+          toast(err.message);
+        }
+      }
+
       openSheet((sheet, close) => {
         const membersWrap = el("div", { class: "sheet-list" }, el("p", { class: "muted empty", text: "Lade Mitglieder…" }));
         const actionRowWrap = el("div", {});
@@ -1623,6 +2017,12 @@
             { class: "sheet-row sheet-row-action", type: "button", onclick: () => shareInvite() },
             el("span", { class: "sheet-row-name", text: "🔗 Einladungslink teilen" })
           ),
+          el(
+            "button",
+            { class: "sheet-row sheet-row-action", type: "button", onclick: () => showQr() },
+            el("span", { class: "sheet-row-name", text: "📱 QR-Code anzeigen" })
+          ),
+          qrWrap,
           actionRowWrap
         );
 
@@ -2076,12 +2476,12 @@
                 toast("Nicht verbunden – versuch es gleich nochmal.");
                 return;
               }
-              listConn.send({ type: "add", name: entry.name, menge: entry.menge, kategorie: classify(entry.name) });
+              listConn.send({ type: "add", name: entry.name, menge: entry.menge, kategorie: classify(entry.name, categoryData) });
               pendingAdds.push({
                 id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 name: entry.name,
                 menge: entry.menge,
-                kategorie: classify(entry.name),
+                kategorie: classify(entry.name, categoryData),
                 erledigt: false,
                 hinzugefuegtVon: state.user.displayName,
                 timestamp: Date.now(),
@@ -2271,342 +2671,95 @@
       el("p", { class: "empty-sub muted", text: "Schreib unten rein, was du brauchst – z. B. „Milch“ oder „2× Apfel“." })
     );
 
-    const doneLabel = el("span", { class: "done-label" });
-    const doneClear = deleteButton({
-      cls: "done-clear",
-      caption: "Entfernen",
-      confirmText: "Wirklich entfernen?",
-      ariaLabel: "Erledigte Artikel entfernen",
-      onConfirm: clearDoneItems,
+    const itemList = createItemListController({
+      items,
+      pendingAdds,
+      progressText,
+      progressFill,
+      emptyEl,
+      itemsEl,
+      onItemRemoved: undoItemDelete,
     });
-    const doneDivider = el("li", { class: "done-divider", hidden: true }, doneLabel, doneClear);
+    const { refresh } = itemList;
 
-    function skeletonCells() {
-      return [0, 1, 2, 3].map(() =>
-        el(
-          "li",
-          { class: "swipe-cell skeleton-cell", "aria-hidden": "true" },
-          el(
-            "div",
-            { class: "swipe-content" },
-            el("span", { class: "skeleton-circle" }),
-            el("span", { class: "skeleton-lines" }, el("span", { class: "skeleton-line" }), el("span", { class: "skeleton-line short" }))
-          )
-        )
-      );
-    }
-
-    function checkSvg() {
-      return el(
-        "svg",
-        { class: "check-svg", viewBox: "0 0 30 30", "aria-hidden": "true" },
-        el("circle", { class: "ring", cx: "15", cy: "15", r: "13" }),
-        el("path", { class: "check-path", d: "M9 15.5l4 4L21 10.5" })
-      );
-    }
-
-    // Swipe-Geste: horizontales Aufziehen legt die Löschen-Fläche dahinter bloß,
-    // vertikales Scrollen bleibt unberührt (touch-action: pan-y).
-    const SWIPE_MAX = 88;
-    let openSwipe = null;
-
-    function closeOpenSwipe() {
-      if (!openSwipe) return;
-      openSwipe.close();
-      openSwipe = null;
-    }
-
-    function attachSwipe(cell, content) {
-      let startX = 0;
-      let startY = 0;
-      let dx = 0;
-      let tracking = false;
-      let horizontal = null;
-
-      const setX = (x, animate) => {
-        content.style.transition = animate ? "" : "none";
-        content.style.transform = x ? `translateX(${x}px)` : "";
-        cell.classList.toggle("swiped", x < 0); // Löschen-Fläche nur sichtbar, wenn wirklich offen
-      };
-      const close = () => setX(0, true);
-      // Nach einer echten Zieh-Bewegung den danach folgenden Klick schlucken.
-      const swallowClick = () => {
-        const swallow = (event) => {
-          event.stopPropagation();
-          event.preventDefault();
-        };
-        content.addEventListener("click", swallow, true);
-        setTimeout(() => content.removeEventListener("click", swallow, true), 400);
-      };
-
-      content.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0) return;
-        startX = event.clientX;
-        startY = event.clientY;
-        dx = 0;
-        horizontal = null;
-        tracking = true;
-      });
-
-      content.addEventListener("pointermove", (event) => {
-        if (!tracking) return;
-        const mx = event.clientX - startX;
-        const my = event.clientY - startY;
-        if (horizontal === null) {
-          if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
-          if (Math.abs(mx) <= Math.abs(my)) {
-            tracking = false; // vertikales Scrollen gewinnt
-            return;
-          }
-          horizontal = true;
-          try {
-            content.setPointerCapture(event.pointerId);
-          } catch {
-            // nicht schlimm – Ziehen funktioniert trotzdem
-          }
-          closeOpenSwipe();
-          openSwipe = { close, cell };
-          content.classList.add("dragging");
-          swallowClick();
-        }
-        dx = Math.max(-SWIPE_MAX, Math.min(0, mx)); // nur nach links
-        setX(dx, false);
-      });
-
-      const finish = () => {
-        if (!tracking) return;
-        tracking = false;
-        if (horizontal !== true) return;
-        content.classList.remove("dragging");
-        if (dx >= -SWIPE_MAX * 0.4) {
-          setX(0, true);
-          if (openSwipe?.close === close) openSwipe = null;
-        }
-      };
-      content.addEventListener("pointerup", finish);
-      content.addEventListener("pointercancel", finish);
-    }
-
-    function renderItem(item) {
-      const li = el("li", {
-        class: "swipe-cell" + (item.erledigt ? " done" : "") + (item.pending ? " pending" : ""),
-      });
-      const content = el("div", { class: "swipe-content" });
-
-      const checkbox = el(
-        "button",
-        {
-          class: "checkbox" + (item.erledigt ? " checked" : "") + (item.pending ? " pending" : ""),
-          type: "button",
-          "aria-pressed": String(item.erledigt),
-          "aria-label": item.pending
-            ? "Wird hinzugefügt…"
-            : item.erledigt
-              ? "Als offen markieren"
-              : "Als erledigt abhaken",
-          disabled: item.pending ? "" : undefined,
+    // Undo nach dem Löschen eines bestätigten Artikels: Der Server re-addiert
+    // über den Duplikat-Merge; das neue Item bekommt eine neue ID. Die Aktion
+    // ist nur gültig, solange dieselbe Liste offen ist (listId-Vergleich), und
+    // übernimmt das quelle-Tag, damit Gericht-Zuordnungen erhalten bleiben.
+    function undoItemDelete(item) {
+      toast(`„${item.name}“ gelöscht`, {
+        action: {
+          label: "Rückgängig",
+          onTap: () => {
+            if (currentListId !== listId || !listConn || listConn.readyState() !== WebSocket.OPEN) {
+              toast("Liste hat sich geändert – der Artikel wurde nicht wiederhergestellt.");
+              return;
+            }
+            listConn.send({
+              type: "add",
+              name: item.name,
+              menge: item.menge,
+              kategorie: item.kategorie,
+              quelle: item.quelle,
+            });
+            pendingAdds.push({
+              id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              name: item.name,
+              menge: item.menge,
+              kategorie: item.kategorie,
+              quelle: item.quelle,
+              erledigt: false,
+              hinzugefuegtVon: state.user.displayName,
+              timestamp: Date.now(),
+              pending: true,
+            });
+            refresh();
+          },
         },
-        checkSvg()
-      );
-      checkbox.addEventListener("click", () => {
-        if (item.pending) return;
-        item.erledigt = !item.erledigt;
-        popId = item.erledigt ? item.id : null; // Animation nur beim Abhaken
-        listConn?.send({ type: "toggle", itemId: item.id, erledigt: item.erledigt });
-        refresh();
       });
-
-      const remove = () => removeItem(item, li);
-      const swipeDelete = deleteButton({
-        cls: "swipe-delete",
-        icon: "🗑",
-        caption: "Löschen",
-        confirmText: "Sicher?",
-        ariaLabel: "Artikel löschen",
-        onConfirm: remove,
-        oneTap: true, // Swipe zum Freilegen ist bereits die Bestätigung
-      });
-
-      content.append(
-        checkbox,
-        el(
-          "div",
-          { class: "item-main" },
-          el("span", { class: "item-name", text: item.name }),
-          el("span", {
-            class: "item-meta",
-            text: item.pending ? "wird hinzugefügt…" : [item.menge, `von ${item.hinzugefuegtVon}`].filter(Boolean).join(" · "),
-          })
-        )
-      );
-
-      // Desktop/Tastatur: Papierkorb am Zeilenende (Hover/Fokus), gleiche Bestätigung
-      if (!item.pending) {
-        content.append(
-          deleteButton({
-            cls: "delete-btn",
-            icon: "🗑",
-            caption: "",
-            confirmText: "Sicher?",
-            ariaLabel: "Artikel löschen",
-            onConfirm: remove,
-            oneTap: true,
-          })
-        );
-      }
-
-      li.append(el("div", { class: "swipe-action" }, swipeDelete), content);
-      attachSwipe(li, content);
-
-      if (popId === item.id) {
-        popId = null;
-        if (item.erledigt) {
-          li.classList.add("just-done");
-          content.querySelector(".checkbox")?.classList.add("pop");
-        }
-        li.classList.add("pop-settle");
-      }
-      return li;
-    }
-
-    function removeItem(item, li) {
-      if (item.pending) {
-        // noch nicht bestätigt – nur lokal wegnehmen
-        const idx = pendingAdds.indexOf(item);
-        if (idx >= 0) pendingAdds.splice(idx, 1);
-        refresh();
-        return;
-      }
-      const idx = items.findIndex((i) => i.id === item.id);
-      if (idx >= 0) items.splice(idx, 1);
-      listConn?.send({ type: "delete", itemId: item.id });
-      li.classList.add("removing");
-      setTimeout(() => refresh(), 170);
-    }
-
-    function clearDoneItems() {
-      const doneItems = items.filter((i) => i.erledigt);
-      if (!doneItems.length) return;
-      for (const it of doneItems) listConn?.send({ type: "delete", itemId: it.id });
-      for (let i = items.length - 1; i >= 0; i--) {
-        if (items[i].erledigt) items.splice(i, 1);
-      }
-      refresh();
-      toast(`${doneItems.length} erledigte${doneItems.length === 1 ? "r Artikel" : " Artikel"} entfernt`);
-    }
-
-    function refresh() {
-      closeOpenSwipe();
-      const open = [];
-      const done = [];
-      for (const it of items) (it.erledigt ? done : open).push(it);
-      done.sort((a, b) => a.timestamp - b.timestamp);
-      const openAll = [...open, ...pendingAdds];
-
-      // Nach Kategorie gruppieren (feste Markt-Reihenfolge), im Gruppenuntergang
-      // nach Zeit; Header nur ab zwei Gruppen, damit Ein-Kategorie-Listen ruhig bleiben.
-      const order = categoryOrder();
-      const groups = new Map();
-      for (const it of openAll) {
-        const id = it.kategorie && order.includes(it.kategorie) ? it.kategorie : SONSTIGES;
-        if (!groups.has(id)) groups.set(id, []);
-        groups.get(id).push(it);
-      }
-      for (const group of groups.values()) group.sort((a, b) => a.timestamp - b.timestamp);
-
-      const frag = document.createDocumentFragment();
-      const groupIds = order.filter((id) => groups.has(id));
-      const showHeaders = groupIds.length > 1;
-      for (const id of groupIds) {
-        if (showHeaders) {
-          frag.append(el("li", { class: "cat-divider" }, el("span", { class: "cat-label", text: categoryLabel(id) })));
-        }
-        for (const it of groups.get(id)) frag.append(renderItem(it));
-      }
-
-      doneDivider.hidden = done.length === 0;
-      if (done.length) {
-        doneLabel.textContent = `Erledigt · ${done.length}`;
-        frag.append(doneDivider);
-        for (const it of done) frag.append(renderItem(it));
-      } else {
-        doneClear.reset?.();
-      }
-      itemsEl.replaceChildren(frag);
-
-      const total = items.length;
-      progressText.textContent = total ? `${done.length} von ${total} erledigt` : "";
-      progressFill.style.width = total ? `${Math.round((done.length / total) * 100)}%` : "0%";
-      emptyEl.hidden = total > 0 || pendingAdds.length > 0;
     }
 
     // ---------- Add-Bar ----------
 
-    const nameInput = el("input", {
-      class: "input",
-      type: "text",
-      placeholder: "Artikel, z. B. Milch",
-      maxlength: "120",
-      autocomplete: "off",
-      enterkeyhint: "send",
+    const { form: addForm, nameInput, mengeInput } = buildAddBar(({ name, menge }) => {
+      if (!listConn || listConn.readyState() !== WebSocket.OPEN) {
+        toast("Nicht verbunden – versuch es gleich nochmal.");
+        return;
+      }
+      // Server führt Duplikate zusammen – hier nur User-Feedback dazu
+      const dup = [...items, ...pendingAdds].some(
+        (i) => !i.erledigt && normKey(i.name) === normKey(name)
+      );
+      const kategorie = classify(name, categoryData);
+      listConn.send({ type: "add", name, menge: menge || undefined, kategorie });
+      pendingAdds.push({
+        id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        menge: menge || undefined,
+        kategorie,
+        erledigt: false,
+        hinzugefuegtVon: state.user.displayName,
+        timestamp: Date.now(),
+        pending: true,
+      });
+      nameInput.value = "";
+      mengeInput.value = "";
+      refresh();
+      if (dup) toast(`„${name}“ ist schon auf der Liste – Menge ergänzt.`);
+      itemsEl.querySelector(".pending")?.scrollIntoView({ block: "nearest" });
+      nameInput.focus();
     });
-    const mengeInput = el("input", {
-      class: "input menge",
-      type: "text",
-      placeholder: "2× / 500g",
-      maxlength: "40",
-      autocomplete: "off",
-    });
-    const addBtn = el("button", { class: "btn primary add-btn", type: "submit", "aria-label": "Artikel hinzufügen", text: "+" });
-
-    const addForm = el(
-      "form",
-      {
-        class: "add-bar",
-        onsubmit: (event) => {
-          event.preventDefault();
-          const name = nameInput.value.trim();
-          const menge = mengeInput.value.trim();
-          if (!name) {
-            nameInput.focus();
-            return;
-          }
-          if (!listConn || listConn.readyState() !== WebSocket.OPEN) {
-            toast("Nicht verbunden – versuch es gleich nochmal.");
-            return;
-          }
-          // Server führt Duplikate zusammen – hier nur User-Feedback dazu
-          const dup = [...items, ...pendingAdds].some(
-            (i) => !i.erledigt && normKey(i.name) === normKey(name)
-          );
-          const kategorie = classify(name);
-          listConn.send({ type: "add", name, menge: menge || undefined, kategorie });
-          pendingAdds.push({
-            id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            name,
-            menge: menge || undefined,
-            kategorie,
-            erledigt: false,
-            hinzugefuegtVon: state.user.displayName,
-            timestamp: Date.now(),
-            pending: true,
-          });
-          nameInput.value = "";
-          mengeInput.value = "";
-          refresh();
-          if (dup) toast(`„${name}“ ist schon auf der Liste – Menge ergänzt.`);
-          itemsEl.querySelector(".pending")?.scrollIntoView({ block: "nearest" });
-          nameInput.focus();
-        },
-      },
-      nameInput,
-      mengeInput,
-      addBtn
-    );
 
     // ---------- Anzeigen ----------
 
     $app.replaceChildren(header, gerichteWrap, itemsEl, emptyEl, addForm);
+
+    // Home-Screen-Shortcut „Schnell hinzufügen“: Add-Bar fokussieren und die
+    // Query sauber entfernen, damit ein Reload nicht erneut fokussiert.
+    if (new URLSearchParams(location.search).has("add")) {
+      nameInput.focus();
+      history.replaceState({}, "", location.pathname);
+    }
 
     // sync verarbeiten: Pending-Adds abgleichen, nur neu zeichnen, wenn sich
     // wirklich etwas geändert hat (sonst würden Animationen abgewürgt).
@@ -2670,6 +2823,7 @@
           status === "open" ? "Live" : status === "connecting" ? "Verbinde…" : "Neu verbinden…";
       },
     });
+    currentListId = listId;
 
     closeActiveSwipe = closeOpenSwipe;
   }
@@ -3034,8 +3188,7 @@
             finish();
             return;
           }
-          const totalSec = Math.ceil(remain / 1000);
-          chip.textContent = `⏱ ${Math.floor(totalSec / 60)}:${String(totalSec % 60).padStart(2, "0")}`;
+          chip.textContent = `⏱ ${formatTimer(remain)}`;
         };
         chip.addEventListener("click", () => {
           if (timerDone) paintTimer();

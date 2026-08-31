@@ -6,6 +6,8 @@ export interface Env {
   ASSETS: Fetcher;
   /** Worker-Secret, siehe .dev.vars (lokal) bzw. `wrangler secret put` (Produktion). */
   GEMINI_API_KEY?: string;
+  /** Gemini-Modellname; Default in src/recipes.ts, überschreibbar per Secret/Env. */
+  GEMINI_MODEL?: string;
   /** Web-Push-VAPID: Base64url des 65-Byte-Uncompressed-Points (npx web-push generate-vapid-keys). */
   VAPID_PUBLIC_KEY?: string;
   /** Web-Push-VAPID: Base64url des 32-Byte-Private-Scalars. */
@@ -82,7 +84,7 @@ export interface ShoppingList {
 
 /** Client -> Durable Object */
 export type ClientMessage =
-  | { type: "add"; name: string; menge?: string; kategorie?: string }
+  | { type: "add"; name: string; menge?: string; kategorie?: string; quelle?: ItemQuelle }
   | { type: "toggle"; itemId: string; erledigt: boolean }
   | { type: "delete"; itemId: string };
 
