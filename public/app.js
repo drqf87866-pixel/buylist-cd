@@ -39,7 +39,7 @@
     return el("span", { class: cls, text: formatItemMenge(menge) || menge });
   }
 
-  function itemMetaEl(item, onMarktTap = null) {
+  function itemMetaEl(item, onMarktTap = null, onMengeTap = null) {
     if (item.pending) {
       return el("span", { class: "item-meta", text: "wird hinzugefügt…" });
     }
@@ -47,15 +47,38 @@
     const parts = [];
     if (item.menge) {
       const { wert, einheit } = parseMengeParts(item.menge);
-      if (einheit) {
+      const mengeChildren = einheit
+        ? [el("span", { class: "menge-wert", text: wert }), sep(), el("span", { class: "menge-einheit", text: einheit })]
+        : wert
+          ? [el("span", { class: "menge-wert", text: wert })]
+          : [];
+      if (mengeChildren.length) {
         parts.push(
-          el("span", { class: "menge-wert", text: wert }),
-          sep(),
-          el("span", { class: "menge-einheit", text: einheit })
+          onMengeTap
+            ? el(
+                "button",
+                {
+                  class: "item-menge-btn",
+                  type: "button",
+                  "aria-label": `Menge für „${item.name}“ ändern`,
+                  onclick: onMengeTap,
+                },
+                ...mengeChildren
+              )
+            : el("span", { class: "item-menge" }, ...mengeChildren)
         );
-      } else if (wert) {
-        parts.push(el("span", { class: "menge-wert", text: wert }));
       }
+    } else if (onMengeTap) {
+      if (parts.length) parts.push(sep());
+      parts.push(
+        el("button", {
+          class: "item-menge-btn item-empty",
+          type: "button",
+          "aria-label": `Menge für „${item.name}“ hinzufügen`,
+          onclick: onMengeTap,
+          text: "+ Menge",
+        })
+      );
     }
     if (item.supermarkt) {
       if (parts.length) parts.push(sep());
@@ -72,6 +95,17 @@
               el("span", { text: `🛒 ${item.supermarkt}` })
             )
           : el("span", { class: "item-markt", text: `🛒 ${item.supermarkt}` })
+      );
+    } else if (onMarktTap) {
+      if (parts.length) parts.push(sep());
+      parts.push(
+        el("button", {
+          class: "item-markt item-empty",
+          type: "button",
+          "aria-label": `Markt für „${item.name}“ hinzufügen`,
+          onclick: onMarktTap,
+          text: "+ Markt",
+        })
       );
     }
     if (item.hinzugefuegtVon) {
@@ -711,11 +745,12 @@
       el(
         "ol",
         { class: "recipe-steps" },
-        ...parseSteps(recipe.schritte).map((s) =>
+        ...parseSteps(recipe.schritte).map((s, i) =>
           el(
             "li",
             {},
-            el("span", { text: s.text }),
+            el("span", { class: "recipe-step-num", "aria-hidden": "true", text: String(i + 1) }),
+            el("span", { class: "recipe-step-text", text: s.text }),
             s.timerSekunden ? el("span", { class: "recipe-timer", text: fmtTimer(s.timerSekunden) }) : null
           )
         )
@@ -1109,7 +1144,7 @@
     );
   }
 
-  function recipeCard(recipe) {
+  function recipeCard(recipe, onDeleted) {
     return recipeCardBase({
       title: recipe.titel,
       subText: [[recipeMetaText(recipe), `📖 ${recipe.listName}`].filter(Boolean).join(" · ")],
@@ -1125,6 +1160,16 @@
           type: "button",
           text: "🛒 Auf die Liste",
           onclick: () => openZuschaltenSheet(recipe),
+        }),
+        deleteButton({
+          cls: "recipe-del",
+          icon: "🗑",
+          confirmText: "Löschen?",
+          ariaLabel: `„${recipe.titel}“ löschen`,
+          onConfirm: async () => {
+            await api(`/api/list/${recipe.listId}/recipes/${recipe.id}`, { method: "DELETE" });
+            onDeleted();
+          },
         }),
       ],
     });
@@ -1270,7 +1315,7 @@
               );
               return;
             }
-            for (const recipe of data.rezepte) cards.append(recipeCard(recipe));
+            for (const recipe of data.rezepte) cards.append(recipeCard(recipe, loadRecipes));
           })
           .catch((err) => {
             if (err.status === 401) {
@@ -1832,7 +1877,7 @@
   function createItemListController(cfg) {
     const { items, pendingAdds, progressText, progressFill, emptyEl, itemsEl, onItemRemoved } = cfg;
     // Markt-Zeile: marktState = aktiver Markt (fürs Hinzufügen), marktFilter = Chip (null = Alle).
-    const { marktRow, marktState, marktFilter, onOpenMarktSheet, onMarktTap } = cfg;
+    const { marktRow, marktState, marktFilter, onOpenMarktSheet, onMarktTap, onMengeTap } = cfg;
     let popId = null; // Artikel, dessen Abhak-Animation beim nächsten refresh() läuft
 
     const doneLabel = el("span", { class: "done-label" });
@@ -1891,7 +1936,7 @@
           "div",
           { class: "item-main" },
           el("span", { class: "item-name", text: item.name }),
-          itemMetaEl(item, onMarktTap ? () => onMarktTap(item) : null)
+          itemMetaEl(item, onMarktTap ? () => onMarktTap(item) : null, onMengeTap ? () => onMengeTap(item) : null)
         )
       );
 
@@ -2820,6 +2865,7 @@
       marktFilter,
       onOpenMarktSheet: () => openMarktSheet(),
       onMarktTap: (item) => openMarktSheet(item),
+      onMengeTap: (item) => openMengeSheet(item),
       onItemRemoved: undoItemDelete,
     });
     const { refresh } = itemList;
@@ -2869,17 +2915,6 @@
     function openMarktSheet(item = null) {
       const aktuell = (item ? item.supermarkt : marktState.value) || "";
       openSheet((sheet, close) => {
-        const input = el("input", {
-          class: "input markt-input",
-          type: "text",
-          list: "markt-vorschlaege",
-          placeholder: "Markt, z. B. Rewe",
-          maxlength: "40",
-          autocomplete: "off",
-          value: aktuell,
-          "aria-label": "Supermarkt",
-        });
-        const datalist = el("datalist", { id: "markt-vorschlaege" }, ...SUPERMAERKTE.map((m) => el("option", { value: m })));
         const rows = el("div", { class: "sheet-list" });
 
         const select = (value) => {
@@ -2913,7 +2948,7 @@
             )
           );
         }
-        // „Kein Markt“ zum Zurücksetzen (bei freien Werten der aktuelle Stand).
+        // „Kein Markt“ zum Zurücksetzen.
         rows.append(
           el(
             "button",
@@ -2927,19 +2962,6 @@
           )
         );
 
-        input.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            select(input.value);
-          }
-        });
-        const confirmBtn = el("button", {
-          class: "btn primary",
-          type: "button",
-          text: "Übernehmen",
-          onclick: () => select(input.value),
-        });
-
         sheet.append(
           el("div", { class: "sheet-handle", "aria-hidden": "true" }),
           el("h2", { class: "sheet-title", text: item ? `Markt für „${item.name}“` : "Aktiver Markt" }),
@@ -2949,9 +2971,53 @@
               ? "Diesem Artikel einen Markt zuordnen."
               : "Alles, was du hinzufügst, bekommt automatisch diesen Markt.",
           }),
+          el("div", { class: "sheet-pad" }, rows)
+        );
+      });
+    }
+
+    // ---------- Menge-Sheet (einzelner Artikel) ----------
+
+    /** Öffnet den Menge-Editor für einen Artikel. */
+    function openMengeSheet(item) {
+      const aktuell = item.menge || "";
+      openSheet((sheet, close) => {
+        const input = el("input", {
+          class: "input menge-input",
+          type: "text",
+          placeholder: "Menge, z. B. 500 g",
+          maxlength: "40",
+          autocomplete: "off",
+          value: aktuell,
+          "aria-label": "Menge",
+        });
+
+        const apply = (value) => {
+          const menge = (value || "").trim().replace(/\s+/g, " ").slice(0, 40);
+          item.menge = menge || undefined;
+          listConn?.send({ type: "setMenge", itemId: item.id, menge: menge || "" });
+          refresh();
+          close();
+        };
+
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            apply(input.value);
+          }
+        });
+        const confirmBtn = el("button", {
+          class: "btn primary",
+          type: "button",
+          text: "Übernehmen",
+          onclick: () => apply(input.value),
+        });
+
+        sheet.append(
+          el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+          el("h2", { class: "sheet-title", text: `Menge für „${item.name}“` }),
+          el("p", { class: "sheet-sub muted", text: "Ersetzt die aktuelle Menge des Artikels." }),
           input,
-          datalist,
-          el("div", { class: "sheet-pad" }, rows),
           el("div", { class: "sheet-actions" }, confirmBtn)
         );
         input.focus();
@@ -3608,20 +3674,8 @@
         });
         chip.addEventListener("click", () => startTimer(stepTimer));
         timerArea.append(chip);
-      } else {
-        const presets = el("div", { class: "cook-presets" }, el("span", { class: "cook-presets-label muted", text: "⏱ Timer:" }));
-        for (const min of [5, 10, 15]) {
-          const preset = el("button", {
-            class: "cook-preset",
-            type: "button",
-            text: `${min}′`,
-            "aria-label": `${min} Minuten Timer starten`,
-          });
-          preset.addEventListener("click", () => startTimer(min * 60));
-          presets.append(preset);
-        }
-        timerArea.append(presets);
       }
+      // else: kein UI – dieser Schritt braucht keinen Timer.
     }
 
     // ---------- Schrittnavigation ----------
@@ -3658,7 +3712,7 @@
 
     // ---------- Anzeigen ----------
 
-    $app.replaceChildren(header, el("div", { class: "cook-main" }, ingCard, stepCard, finishCard));
+    $app.replaceChildren(header, el("div", { class: "cook-main" }, stepCard, ingCard, finishCard));
     paintIngredients();
     paintStep();
 

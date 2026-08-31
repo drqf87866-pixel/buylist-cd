@@ -8,17 +8,7 @@
 export const SONSTIGES = "sonstiges";
 
 /** Vorschläge für den Markt-Picker; Freitext bleibt trotzdem erlaubt. */
-export const SUPERMAERKTE = [
-  "Rewe",
-  "Edeka",
-  "Aldi",
-  "Lidl",
-  "Kaufland",
-  "Netto",
-  "Penny",
-  "dm",
-  "Rossmann",
-];
+export const SUPERMAERKTE = ["Aldi", "Edeka", "Rewe", "Lidl", "Budni"];
 
 /** Duplikat-Schlüssel wie im Durable Object: „  Milch “ == „milch“ */
 export function normKey(name) {

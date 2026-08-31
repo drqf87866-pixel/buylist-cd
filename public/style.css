@@ -1355,6 +1355,27 @@ body.has-nav .container {
   text-decoration: underline;
 }
 
+.item-menge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.item-menge-btn:active {
+  text-decoration: underline;
+}
+
+.item-menge-btn.item-empty,
+.item-markt.item-empty {
+  color: var(--muted);
+  font-weight: 500;
+}
+
 /* Rezepte-Tab: Kartenliste */
 .recent-recipes {
   display: flex;
@@ -1574,17 +1595,35 @@ body.has-nav .container {
 
 .recipe-steps {
   margin: 0;
-  padding-left: 20px;
+  padding-left: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   font-size: 0.95rem;
 }
 
 .recipe-steps li {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.recipe-step-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--leaf-soft);
+  color: var(--leaf-dark);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+
+.recipe-step-text {
+  flex: 1;
 }
 
 .recipe-timer {
@@ -2147,34 +2186,6 @@ body.has-nav .container {
   border-color: var(--leaf);
   background: var(--leaf);
   color: #fff;
-}
-
-.cook-presets {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cook-presets-label {
-  font-size: 0.85rem;
-  margin-right: 2px;
-}
-
-.cook-preset {
-  min-width: 44px;
-  min-height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface);
-  font-family: inherit;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.cook-preset:active {
-  background: var(--leaf-soft);
 }
 
 /* Schritt-Navigation */

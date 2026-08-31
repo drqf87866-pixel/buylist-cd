@@ -96,7 +96,9 @@ export type ClientMessage =
   | { type: "toggle"; itemId: string; erledigt: boolean }
   | { type: "delete"; itemId: string }
   /** Markt eines Artikels setzen/leeren ("" = kein Markt). */
-  | { type: "setMarkt"; itemId: string; supermarkt?: string };
+  | { type: "setMarkt"; itemId: string; supermarkt?: string }
+  /** Menge eines Artikels direkt ersetzen ("" = Menge löschen). */
+  | { type: "setMenge"; itemId: string; menge?: string };
 
 /** Durable Object -> Client */
 export type ServerMessage =

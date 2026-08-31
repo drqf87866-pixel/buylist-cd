@@ -69,6 +69,11 @@ function sanitizeMarkt(raw: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() ? raw.trim().replace(/\s+/g, " ").slice(0, 40) : undefined;
 }
 
+/** Freitext-Menge sichern; fehlt/leer = undefined (= keine Menge). */
+function sanitizeMenge(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw.trim() ? raw.trim().replace(/\s+/g, " ").slice(0, 40) : undefined;
+}
+
 /** Gericht-Herkunft aus einer WS-Nachricht sichern (typ/id/titel begrenzt). */
 function sanitizeQuelle(raw: unknown): ItemQuelle | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -425,6 +430,14 @@ export class ShoppingListDO {
       if (item && (item.supermarkt ?? undefined) !== markt) {
         if (markt) item.supermarkt = markt;
         else delete item.supermarkt;
+        changed = true;
+      }
+    } else if (msg.type === "setMenge") {
+      const item = list.items.find((i) => i.id === msg.itemId);
+      const menge = sanitizeMenge(msg.menge);
+      if (item && (item.menge ?? undefined) !== menge) {
+        if (menge) item.menge = menge;
+        else delete item.menge;
         changed = true;
       }
     }
