@@ -8,6 +8,12 @@ export interface Env {
   GEMINI_API_KEY?: string;
   /** Gemini-Modellname; Default in src/recipes.ts, überschreibbar per Secret/Env. */
   GEMINI_MODEL?: string;
+  /** Groq-Key für den Sprach-Dump-Parser (Add-Bar). */
+  GROQ_API_KEY?: string;
+  /** Groq-Modellname; Default in src/parse.ts. */
+  GROQ_MODEL?: string;
+  /** App-weites Groq-RPM-Limit (Default 27). */
+  GROQ_RPM?: string;
   /** Web-Push-VAPID: Base64url des 65-Byte-Uncompressed-Points (npx web-push generate-vapid-keys). */
   VAPID_PUBLIC_KEY?: string;
   /** Web-Push-VAPID: Base64url des 32-Byte-Private-Scalars. */

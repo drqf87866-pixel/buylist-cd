@@ -13,6 +13,8 @@ import {
   classify,
   categoryLabel,
   categoryOrder,
+  looksLikeDump,
+  splitDumpLocal,
 } from "../public/app-core.mjs";
 
 const categories = JSON.parse(
@@ -117,3 +119,40 @@ test("relTime: deutsche Relativzeit anhand fester Vergangenheits-Offsets", () =>
   assert.equal(relTime(now - 35 * 24 * 3600 * 1000), "vor einem Monat");
   assert.equal(relTime(now - 60 * 24 * 3600 * 1000), "vor 2 Monaten");
 });
+
+// ---------- looksLikeDump / splitDumpLocal ----------
+
+test("looksLikeDump: einzelne Artikel und Dezimal-Kommas sind kein Dump", () => {
+  assert.equal(looksLikeDump(""), false);
+  assert.equal(looksLikeDump("Milch"), false);
+  assert.equal(looksLikeDump("Bio-Milch 3,5%"), false);
+  assert.equal(looksLikeDump("Butter und"), false);
+});
+
+test("looksLikeDump: Komma, Semikolon, Zeile und „und“ zählen als Dump", () => {
+  assert.equal(looksLikeDump("Milch, Brot"), true);
+  assert.equal(looksLikeDump("Milch,Brot"), true);
+  assert.equal(looksLikeDump("Milch; Brot"), true);
+  assert.equal(looksLikeDump("Milch\nBrot"), true);
+  assert.equal(looksLikeDump("Milch und Brot"), true);
+});
+
+test("splitDumpLocal: Kommas, Mengen und „und“", () => {
+  assert.deepEqual(splitDumpLocal("Milch 2l, Brot, 6 Eier"), [
+    { name: "Milch", menge: "2 l" },
+    { name: "Brot" },
+    { name: "Eier", menge: "6" },
+  ]);
+  assert.deepEqual(splitDumpLocal("Milch und Brot"), [{ name: "Milch" }, { name: "Brot" }]);
+  assert.deepEqual(splitDumpLocal("500g Hackfleisch, 2l Milch"), [
+    { name: "Hackfleisch", menge: "500 g" },
+    { name: "Milch", menge: "2 l" },
+  ]);
+});
+
+test("splitDumpLocal: Dezimal-Komma bleibt im Artikel, Duplikate fallen weg", () => {
+  assert.deepEqual(splitDumpLocal("Bio Milch 3,5%"), [{ name: "Bio Milch 3,5%" }]);
+  assert.deepEqual(splitDumpLocal("Milch, milch"), [{ name: "Milch" }]);
+  assert.deepEqual(splitDumpLocal(""), []);
+});
+

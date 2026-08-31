@@ -1463,6 +1463,10 @@ body.has-nav .container {
   color: var(--muted);
 }
 
+.dump-items {
+  margin: 0;
+}
+
 .recipe-steps {
   margin: 0;
   padding-left: 20px;
@@ -1752,6 +1756,15 @@ body.has-nav .container {
 .sheet-sub {
   padding: 0 20px 12px;
   font-size: 0.85rem;
+}
+
+.dump-quote {
+  padding-top: 0;
+  padding-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .hist-chips {

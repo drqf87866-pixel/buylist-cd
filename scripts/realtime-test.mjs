@@ -293,6 +293,40 @@ assert(
   `Zutaten-Generate: Route antwortet (${generateIngredients.status})`
 );
 
+// Sprach-Dump: Freitext → Artikel über Groq. Ohne Session 401, ohne Text 400;
+// mit Key 200, sonst 429/500/502 analog zu generate.
+assert(
+  (
+    await api(null, `/api/list/${listId}/parse`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "Milch, Brot" }),
+    })
+  ).status === 401,
+  "POST /api/list/:id/parse ohne Session -> 401"
+);
+const parseEmpty = await api(cookieA, `/api/list/${listId}/parse`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+});
+assert(parseEmpty.status === 400, "Parse ohne Text -> 400");
+const parseDump = await api(cookieA, `/api/list/${listId}/parse`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ text: "Milch 2l, Brot, 6 Eier" }),
+});
+assert(
+  [200, 429, 500, 502].includes(parseDump.status),
+  `POST /api/list/:id/parse: Route antwortet (${parseDump.status})`
+);
+if (parseDump.status === 200) {
+  assert(
+    Array.isArray(parseDump.data.items) && parseDump.data.items.length >= 2,
+    "Parse liefert mehrere Artikel"
+  );
+}
+
 // Tagesvorschläge: ohne Session 401; mit Session antwortet die Route (200 mit
 // 5 Gerichten bei konfiguriertem Key, sonst 429/500/502 je nach Key/Limit).
 assert((await api(null, "/api/suggestions")).status === 401, "GET /api/suggestions ohne Session -> 401");

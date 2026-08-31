@@ -1,0 +1,18 @@
+# Lokale Worker-Secrets für `wrangler dev`.
+# Kopieren nach `.dev.vars` (liegt in .gitignore) und Werte einsetzen.
+# Produktion: dieselben Keys per `wrangler secret put …`
+
+# --- Rezepte & Tagesvorschläge (Gemini) ---
+GEMINI_API_KEY=
+# GEMINI_MODEL=gemini-3.5-flash-lite
+
+# --- Sprach-Dump in der Add-Bar (Groq) ---
+GROQ_API_KEY=
+# GROQ_MODEL=openai/gpt-oss-20b
+# GROQ_RPM=27
+
+# --- Web Push (optional; ohne Keys ist Push deaktiviert) ---
+# Schlüssel: npx web-push generate-vapid-keys
+# VAPID_PUBLIC_KEY=
+# VAPID_PRIVATE_KEY=
+# VAPID_SUBJECT=mailto:du@example.com

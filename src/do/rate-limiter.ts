@@ -4,12 +4,21 @@ import { json } from "../util";
 // zählt der Zähler ab der 13. Anfrage im rollierenden 60-s-Fenster blockiert.
 export const GEMINI_MAX_REQUESTS = 12;
 export const GEMINI_WINDOW_MS = 60_000;
+/** Obergrenze, damit ein Tippfehler in ?max= nicht das Limit aushebelt. */
+const LIMITER_MAX_CAP = 120;
+
+/** Liest ?max= aus der Check-URL; ungültig → Gemini-Default 12. */
+export function limiterMaxFromUrl(url: string): number {
+  const raw = Number(new URL(url).searchParams.get("max"));
+  if (!Number.isFinite(raw) || raw < 1) return GEMINI_MAX_REQUESTS;
+  return Math.min(LIMITER_MAX_CAP, Math.round(raw));
+}
 
 /**
- * App-weiter Zähler für Gemini-Anfragen: als globaler Singleton
- * (env.RATE_LIMITER_DO.idFromName("gemini")) serialisiert das DO alle
- * Anfragen über alle Isolates und Nutzer hinweg – der Zähler ist damit
- * garantiert global, nicht pro Instanz.
+ * App-weiter Zähler für LLM-Anfragen: als globaler Singleton
+ * (env.RATE_LIMITER_DO.idFromName("gemini") bzw. "groq") serialisiert das DO
+ * alle Anfragen über alle Isolates. Getrennte IDs = getrennte Kontingente.
+ * Das Limit kommt per ?max= (Gemini 12, Groq 27).
  */
 export class RateLimiterDO {
   constructor(private state: DurableObjectState) {}
@@ -19,12 +28,13 @@ export class RateLimiterDO {
       return json({ error: "Not Found" }, 404);
     }
 
+    const max = limiterMaxFromUrl(request.url);
     const now = Date.now();
     const hits = ((await this.state.storage.get<number[]>("hits")) ?? []).filter(
       (t) => now - t < GEMINI_WINDOW_MS
     );
 
-    if (hits.length >= GEMINI_MAX_REQUESTS) {
+    if (hits.length >= max) {
       // Blockiert: ohne Zählung ablehnen (sonst würde die Blockade sich
       // selbst verlängern); retryAfter = bis der älteste Treffer verfällt.
       await this.state.storage.put("hits", hits);

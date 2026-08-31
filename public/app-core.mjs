@@ -98,6 +98,71 @@ export function categoryOrder(categoryData) {
   return [...categoryData.map((c) => c.id), SONSTIGES];
 }
 
+/**
+ * Ob der Add-Bar-Text wie ein Sprach-Dump / eine Mini-Liste wirkt
+ * (Kommas, Semikolon, Zeilenumbruch, „und“) – dann zerlegen statt
+ * einen Artikel anzulegen. Dezimal-Kommas („3,5 %“) zählen nicht.
+ */
+export function looksLikeDump(text) {
+  const t = String(text ?? "").trim();
+  if (!t) return false;
+  if (/[\n;]/.test(t)) return true;
+  if (t.replace(/\d,\d/g, "").includes(",")) return true;
+  if (/\p{L}.*\s+und\s+.*\p{L}/u.test(t)) return true;
+  return false;
+}
+
+/** Menge „2l“ / „500 g“ vereinheitlichen. */
+function formatMenge(raw) {
+  const t = String(raw ?? "").trim().replace(/\s+/g, " ");
+  const m = t.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)$/i);
+  if (m) return `${m[1]} ${m[2].toLowerCase()}`;
+  return t;
+}
+
+/**
+ * Grobe lokale Zerlegung (Fallback ohne KI): an Komma/Semikolon/Zeile/„und“
+ * splitten und eine führende oder nachgestellte Menge ablösen.
+ */
+export function splitDumpLocal(text) {
+  const t = String(text ?? "").trim();
+  if (!t) return [];
+  const parts = [];
+  for (const chunk of t.split(/[\n;]+|\s+und\s+/i)) {
+    // Dezimal-Kommas („3,5“) maskieren, dann an Listen-Kommas splitten.
+    const masked = chunk.replace(/(\d),(\d)/g, "$1\u0000$2");
+    for (const bit of masked.split(",")) {
+      const s = bit.replace(/\u0000/g, ",").trim();
+      if (s) parts.push(s);
+    }
+  }
+
+  const out = [];
+  const seen = new Set();
+  for (const part of parts.slice(0, 30)) {
+    const parsed = peelMenge(part);
+    const key = normKey(parsed.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(parsed);
+  }
+  return out;
+}
+
+const MENGE_EINHEIT = "(?:kg|g|l|ml|stk|stück|x|×)";
+
+function peelMenge(part) {
+  const leading = part.match(new RegExp(`^(\\d+(?:[.,]\\d+)?\\s*${MENGE_EINHEIT}?)\\s+(.+)$`, "i"));
+  if (leading && leading[2].trim().length >= 2) {
+    return { name: leading[2].trim(), menge: formatMenge(leading[1]) };
+  }
+  const trailing = part.match(new RegExp(`^(.+?)\\s+(\\d+(?:[.,]\\d+)?\\s*${MENGE_EINHEIT}?)$`, "i"));
+  if (trailing && trailing[1].trim().length >= 2) {
+    return { name: trailing[1].trim(), menge: formatMenge(trailing[2]) };
+  }
+  return { name: part };
+}
+
 // Global für das klassische app.js (Module laufen vor defer-Scripts aus).
 if (typeof window !== "undefined") {
   window.BC = {
@@ -111,5 +176,7 @@ if (typeof window !== "undefined") {
     classify,
     categoryLabel,
     categoryOrder,
+    looksLikeDump,
+    splitDumpLocal,
   };
 }

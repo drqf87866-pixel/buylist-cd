@@ -17,6 +17,8 @@
     classify,
     categoryLabel,
     categoryOrder,
+    looksLikeDump,
+    splitDumpLocal,
   } = window.BC;
 
   const state = {
@@ -147,7 +149,7 @@
   // Bottom-Sheet: Background-Tap, Esc oder close() schließt. Fokus wird beim
   // Öffnen ins Sheet geholt und per Tab-Falle dort gehalten; der Hintergrund
   // bekommt aria-hidden, solange das Sheet offen ist.
-  function openSheet(build) {
+  function openSheet(build, { onClose } = {}) {
     const backdrop = el("div", { class: "sheet-backdrop" });
     const sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
     const previouslyFocused = document.activeElement;
@@ -204,6 +206,7 @@
       if (previouslyFocused && typeof previouslyFocused.focus === "function") {
         previouslyFocused.focus();
       }
+      if (typeof onClose === "function") onClose();
     }
 
     const onKey = (event) => {
@@ -1730,7 +1733,7 @@
       class: "input",
       type: "text",
       placeholder: "Artikel, z. B. Milch",
-      maxlength: "120",
+      maxlength: "280",
       autocomplete: "off",
       enterkeyhint: "send",
     });
@@ -2721,16 +2724,11 @@
 
     // ---------- Add-Bar ----------
 
-    const { form: addForm, nameInput, mengeInput } = buildAddBar(({ name, menge }) => {
-      if (!listConn || listConn.readyState() !== WebSocket.OPEN) {
-        toast("Nicht verbunden – versuch es gleich nochmal.");
-        return;
-      }
-      // Server führt Duplikate zusammen – hier nur User-Feedback dazu
+    function enqueueAdd(name, menge, kategorie) {
+      if (!listConn || listConn.readyState() !== WebSocket.OPEN) return false;
       const dup = [...items, ...pendingAdds].some(
         (i) => !i.erledigt && normKey(i.name) === normKey(name)
       );
-      const kategorie = classify(name, categoryData);
       listConn.send({ type: "add", name, menge: menge || undefined, kategorie });
       pendingAdds.push({
         id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -2742,6 +2740,165 @@
         timestamp: Date.now(),
         pending: true,
       });
+      return dup;
+    }
+
+    function vorhandeneNamen() {
+      const out = [];
+      const seen = new Set();
+      for (const it of items) {
+        if (it.erledigt) continue;
+        const key = normKey(it.name);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(it.name);
+      }
+      for (const h of history) {
+        const key = normKey(h.name);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(h.name);
+      }
+      return out.slice(0, 40);
+    }
+
+    function fillDumpSheet(sheet, close, itemsIn, { fallback, source } = {}) {
+      const parsed = itemsIn.map((it) => ({
+        name: it.name,
+        menge: it.menge,
+        kategorie: it.kategorie || classify(it.name, categoryData) || undefined,
+      }));
+      const selection = parsed.map(() => true);
+      const title = el("h2", { class: "sheet-title" });
+      const confirmBtn = el("button", { class: "btn primary", type: "button" });
+
+      function selectedCount() {
+        return selection.filter(Boolean).length;
+      }
+
+      function update() {
+        const n = selectedCount();
+        const total = parsed.length;
+        title.textContent = total === 1 ? "1 Artikel erkannt" : `${total} Artikel erkannt`;
+        confirmBtn.textContent = n === 0 ? "Nichts ausgewählt" : n === 1 ? "1 hinzufügen" : `${n} hinzufügen`;
+        confirmBtn.disabled = n === 0;
+      }
+
+      const list = el("ul", { class: "recipe-ingredients selectable dump-items" });
+      parsed.forEach((it, i) => {
+        const toggle = el(
+          "button",
+          {
+            class: "ing-row on",
+            type: "button",
+            "aria-pressed": "true",
+            "aria-label": `${it.name} abwählen`,
+          },
+          el("span", { class: "ing-row-check", "aria-hidden": "true", text: "✓" }),
+          el("span", { class: "ing-row-name", text: it.name }),
+          it.menge ? el("span", { class: "recipe-menge", text: it.menge }) : null
+        );
+        toggle.addEventListener("click", () => {
+          selection[i] = !selection[i];
+          toggle.classList.toggle("on", selection[i]);
+          toggle.setAttribute("aria-pressed", String(selection[i]));
+          toggle.setAttribute("aria-label", `${it.name} ${selection[i] ? "abwählen" : "auswählen"}`);
+          update();
+        });
+        list.append(el("li", {}, toggle));
+      });
+
+      confirmBtn.addEventListener("click", () => {
+        if (!listConn || listConn.readyState() !== WebSocket.OPEN) {
+          toast("Nicht verbunden – versuch es gleich nochmal.");
+          return;
+        }
+        const chosen = parsed.filter((_, i) => selection[i]);
+        let anyDup = false;
+        for (const it of chosen) {
+          if (enqueueAdd(it.name, it.menge, it.kategorie)) anyDup = true;
+        }
+        nameInput.value = "";
+        mengeInput.value = "";
+        refresh();
+        itemsEl.querySelector(".pending")?.scrollIntoView({ block: "nearest" });
+        const n = chosen.length;
+        toast(
+          anyDup
+            ? "Einige Artikel waren schon auf der Liste – Menge ergänzt."
+            : n === 1
+              ? "1 Artikel auf die Liste"
+              : `${n} Artikel auf die Liste`
+        );
+        close();
+      });
+
+      const hint = fallback
+        ? "Ohne KI grob zerlegt – bitte prüfen, dann hinzufügen."
+        : "Abwählen, was nicht auf die Liste soll.";
+      update();
+      sheet.replaceChildren(
+        el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+        title,
+        el("p", { class: "sheet-sub muted", text: hint }),
+        ...(source ? [el("p", { class: "sheet-sub dump-quote muted", text: `„${source}“` })] : []),
+        el("div", { class: "sheet-pad" }, list),
+        el("div", { class: "sheet-actions" }, confirmBtn)
+      );
+    }
+
+    function openDumpParse(text) {
+      nameInput.blur();
+      addBtn.disabled = true;
+      let dismissed = false;
+      openSheet(
+        (sheet, close) => {
+          sheet.append(
+            el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+            el("h2", { class: "sheet-title", text: "Artikel erkennen…" }),
+            el("p", { class: "muted empty", text: "Einen Moment, der Zettel wird zerlegt." })
+          );
+
+          api(`/api/list/${listId}/parse`, { body: { text, vorhandene: vorhandeneNamen() } })
+            .then((data) => {
+              if (dismissed) return;
+              const parsed = Array.isArray(data.items) ? data.items : [];
+              if (!parsed.length) throw new Error("Daraus konnten keine Artikel erkannt werden.");
+              fillDumpSheet(sheet, close, parsed, { source: text });
+            })
+            .catch((err) => {
+              if (dismissed) return;
+              const local = splitDumpLocal(text).map((it) => ({
+                ...it,
+                kategorie: classify(it.name, categoryData) || undefined,
+              }));
+              if (local.length >= 2) {
+                fillDumpSheet(sheet, close, local, { fallback: true, source: text });
+                return;
+              }
+              toast(err.message || "Artikel konnten nicht erkannt werden.");
+              close();
+            });
+        },
+        {
+          onClose: () => {
+            dismissed = true;
+            addBtn.disabled = false;
+          },
+        }
+      );
+    }
+
+    const { form: addForm, nameInput, mengeInput, addBtn } = buildAddBar(({ name, menge }) => {
+      if (!listConn || listConn.readyState() !== WebSocket.OPEN) {
+        toast("Nicht verbunden – versuch es gleich nochmal.");
+        return;
+      }
+      if (looksLikeDump(name)) {
+        openDumpParse(name);
+        return;
+      }
+      const dup = enqueueAdd(name, menge, classify(name, categoryData));
       nameInput.value = "";
       mengeInput.value = "";
       refresh();

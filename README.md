@@ -74,9 +74,14 @@ Wichtige Design-Entscheidungen:
 
 ```bash
 npm install
+copy .dev.vars.example .dev.vars   # Windows; macOS/Linux: cp .dev.vars.example .dev.vars
+# Keys in .dev.vars eintragen (Gemini, Groq, optional VAPID)
 npm run db:migrate:local   # D1-Schema lokal anwenden (.wrangler/state)
 npm run dev                # http://127.0.0.1:8787
 ```
+
+Wrangler liest lokale Secrets aus **`.dev.vars`**, nicht aus einer `.env`.
+Vorlage: [`.dev.vars.example`](./.dev.vars.example).
 
 ### Tests
 
@@ -115,6 +120,20 @@ maskable-Varianten `icon-maskable-*.png`).
 Der Modellname für die Rezept-/Vorschlags-Generierung ist als Worker-Secret
 `GEMINI_MODEL` überschreibbar (Default: `gemini-3.5-flash-lite`, ein aktueller
 Stable-Modellname). So lassen sich neue Modelle ohne Code-Änderung nachziehen.
+
+### Sprach-Dump (Groq)
+
+Die Add-Bar zerlegt Mini-Listen (`Milch 2l, Brot, 6 Eier`) über Groq, nicht
+über Gemini – höheres RPM, eigener Rate-Limiter (Default **27/min**).
+
+```bash
+wrangler secret put GROQ_API_KEY
+# optional: GROQ_MODEL (Default: openai/gpt-oss-20b)
+# optional: GROQ_RPM (Default: 27)
+
+# Lokal: in .dev.vars
+# GROQ_API_KEY=...
+```
 
 ## Deployment
 
@@ -173,6 +192,7 @@ Beim ersten `wrangler deploy` wird die Durable-Object-Migration `v1`
 | DELETE | `/api/list/:id` | Liste löschen (nur Owner) |
 | GET/PUT | `/api/preferences` | Essens-Profil: `{diaet, allergene[]}` |
 | POST | `/api/list/:id/generate` | Rezept generieren `{gericht}` oder `{zutaten[]}` |
+| POST | `/api/list/:id/parse` | Sprach-Dump zerlegen `{text, vorhandene?}` → `{items}` (Groq) |
 | POST | `/api/list/:id/recipes` | Rezept speichern + Zutaten auf die Liste (optional `aufListe`) |
 | POST | `/api/push/subscribe` | Web-Push-Subscription speichern `{endpoint, keys}` |
 | POST | `/api/push/unsubscribe` | Web-Push-Subscription entfernen `{endpoint}` |
@@ -186,5 +206,6 @@ Beim ersten `wrangler deploy` wird die Durable-Object-Migration `v1`
 - Kategorien/Sortierung, Auto-Cleanup erledigter Items (DO Alarm API)
 - PWA-Manifest + Service Worker, Web Push bei neuen Items
 - Profilbilder via R2, OAuth-Login (z. B. Google)
- 
+
+ 
  

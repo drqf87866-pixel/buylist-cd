@@ -3,6 +3,7 @@ import { handleCreateList, handleDeleteList, handleGetLists, handleInvite, handl
 import { handleLeaveList, handleGetMembers, handleRemoveMember, handleTransferOwner } from "./members";
 import { handleGetPreferences, handleSavePreferences } from "./preferences";
 import { handleSubscribe, handleUnsubscribe, handleVapidKey } from "./push";
+import { handleParseDump } from "./parse";
 import {
   handleAbschalten,
   handleAddItems,
@@ -59,7 +60,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-const LIST_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/(snapshot|ws|invite|generate|recipes|items|recurring|members|owner|leave|gerichte)$/;
+const LIST_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/(snapshot|ws|invite|generate|parse|recipes|items|recurring|members|owner|leave|gerichte)$/;
 const LIST_DELETE_RE = /^\/api\/list\/([A-Za-z0-9-]+)$/;
 const RECIPE_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recipes\/([A-Za-z0-9-]+)$/;
 const RECURRING_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recurring\/([A-Za-z0-9-]+)$/;
@@ -100,6 +101,7 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     if (action === "invite" && method === "GET") return handleInvite(request, env, listId);
     if (action === "ws" && method === "GET") return handleWs(request, env, listId);
     if (action === "generate" && method === "POST") return handleGenerate(request, env, listId);
+    if (action === "parse" && method === "POST") return handleParseDump(request, env, listId);
     if (action === "recipes" && method === "GET") return handleGetRecipes(request, env, listId);
     if (action === "recipes" && method === "POST") return handleSaveRecipe(request, env, listId);
     if (action === "items" && method === "POST") return handleAddItems(request, env, listId);
