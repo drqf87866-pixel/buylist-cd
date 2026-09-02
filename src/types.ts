@@ -111,9 +111,10 @@ export interface PublicUser {
   displayName: string;
 }
 
-/** Nutzer-Präferenzen für die Rezept-Generierung (Diätform + Allergene). */
+/** Nutzer-Präferenzen für die Rezept-Generierung (Diätform + Ziel + Allergene). */
 export interface UserPreferences {
   diaet: string;
+  ziel: string;
   allergene: string[];
   updatedAt: number;
 }

@@ -1519,6 +1519,10 @@
   // ---------- Profil-Tab ----------
 
   const DIAET_OPTIONEN = ["keine", "vegetarisch", "vegan", "pescetarisch", "glutenfrei", "laktosefrei"];
+  const ZIEL_OPTIONEN = [
+    { value: "keine", label: "Kein besonderes Ziel" },
+    { value: "proteinreich", label: "Proteinreich / Fitness" },
+  ];
 
   function renderProfile() {
     const logoutBtn = el("button", {
@@ -1577,6 +1581,14 @@
     });
     diaetSelect.replaceChildren(...DIAET_OPTIONEN.map((d) => el("option", { value: d, text: d === "keine" ? "Keine / egal" : d })));
 
+    const zielLabel = el("label", { class: "prefs-label", for: "prefs-ziel", text: "Ernährungsziel" });
+    const zielSelect = el("select", {
+      class: "input prefs-ziel",
+      id: "prefs-ziel",
+      "aria-label": "Ernährungsziel",
+    });
+    zielSelect.replaceChildren(...ZIEL_OPTIONEN.map((z) => el("option", { value: z.value, text: z.label })));
+
     const allergeneInput = el("input", {
       class: "input",
       type: "text",
@@ -1599,7 +1611,7 @@
           .filter(Boolean)
           .slice(0, 20);
         try {
-          await api("/api/preferences", { method: "PUT", body: { diaet: diaetSelect.value, allergene } });
+          await api("/api/preferences", { method: "PUT", body: { diaet: diaetSelect.value, ziel: zielSelect.value, allergene } });
           prefsStatus.classList.remove("error");
           prefsStatus.classList.add("prefs-ok");
           prefsStatus.textContent = "Gespeichert ✓";
@@ -1621,6 +1633,8 @@
         { class: "prefs-form" },
         diaetLabel,
         diaetSelect,
+        zielLabel,
+        zielSelect,
         el("label", { class: "prefs-label", for: "prefs-allergene", text: "Allergene & Unverträglichkeiten" }),
         allergeneInput,
         allergeneHint,
@@ -1633,6 +1647,7 @@
     api("/api/preferences")
       .then((data) => {
         if (data?.preferences?.diaet) diaetSelect.value = data.preferences.diaet;
+        if (data?.preferences?.ziel) zielSelect.value = data.preferences.ziel;
         if (Array.isArray(data?.preferences?.allergene)) {
           allergeneInput.value = data.preferences.allergene.join(", ");
         }

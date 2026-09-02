@@ -46,7 +46,7 @@ interface GenerateRecipeOptions {
   /** … oder eine Liste verfügbarer Zutaten (Resteverwertung). */
   zutaten?: string[];
   portionen: number;
-  /** Zusätzliche Vorgaben für den Prompt (z. B. Diätform/Allergene aus 4.1). */
+  /** Zusätzliche Vorgaben für den Prompt (z. B. Diätform/Ziel/Allergene). */
   praeferenzen?: string;
 }
 
@@ -191,7 +191,7 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
 /**
  * Cache-Key für den globalen Gericht-Cache: Gericht (normalisiert) +
  * Portionen (exakt, keine Skalierung – Mengen wie „1 Bund“ skalieren nicht
- * linear) + Diät + sortierte Allergene + CACHE_VERSION, als SHA-256. Nutzt
+ * linear) + Diät + Ziel + sortierte Allergene + CACHE_VERSION, als SHA-256. Nutzt
  * die strukturierten Präferenz-Felder statt des gerenderten Prompt-Strings,
  * damit reine Formulierungsänderungen im Prompt den Cache nicht unnötig
  * invalidieren.
@@ -204,6 +204,7 @@ async function recipeCacheKey(gericht: string, portionen: number, prefs: UserPre
     portionen,
     diaet: normKey(prefs.diaet),
     allergene: allergeneNorm,
+    ...(prefs.ziel !== "keine" ? { ziel: normKey(prefs.ziel) } : {}),
   });
   return sha256Base64Url(raw);
 }

@@ -270,15 +270,21 @@ assert(selfRemove.status === 400, "Owner kann sich nicht selbst entfernen (400)"
 const prefsSave = await api(cookieA, "/api/preferences", {
   method: "PUT",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ diaet: "vegan", allergene: ["Erdnüsse", "Gluten"] }),
+  body: JSON.stringify({ diaet: "vegan", ziel: "proteinreich", allergene: ["Erdnüsse", "Gluten"] }),
 });
-assert(prefsSave.status === 200 && prefsSave.data.preferences.diaet === "vegan", "Präferenzen speichern");
+assert(
+  prefsSave.status === 200 &&
+    prefsSave.data.preferences.diaet === "vegan" &&
+    prefsSave.data.preferences.ziel === "proteinreich",
+  "Präferenzen speichern"
+);
 const prefsGet = await api(cookieA, "/api/preferences");
 assert(
   prefsGet.status === 200 &&
     prefsGet.data.preferences.allergene.includes("Gluten") &&
-    prefsGet.data.preferences.diaet === "vegan",
-  "Präferenzen lesen (Allergene + Diät)"
+    prefsGet.data.preferences.diaet === "vegan" &&
+    prefsGet.data.preferences.ziel === "proteinreich",
+  "Präferenzen lesen (Allergene + Diät + Ziel)"
 );
 
 // Zutaten-Generierung: Route muss antworten. Mit konfiguriertem Key kommt 200

@@ -60,7 +60,7 @@ Regeln:
 - "beschreibung" ist EIN einladender Satz (max. ca. 15 Wörter), der das Gericht verkauft.
 - "zeit" ist die ungefähre Zubereitungszeit (z. B. "ca. 30 Minuten").
 - Steht eine Ausschlussliste, darf KEIN Gericht davon enthalten sein (auch nicht in Abwandlungen).
-- Beachte die Vorgaben des Nutzers (Diätform/Allergene) zwingend.`;
+- Beachte die Vorgaben des Nutzers (Diätform/Ziel/Allergene) zwingend.`;
 
 /**
  * Generiert die Tagesvorschläge in EINEM Gemini-Request (Array-Response-Schema)

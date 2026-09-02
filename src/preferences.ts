@@ -11,13 +11,17 @@ const DIAET_OPTIONEN = [
   "laktosefrei",
 ] as const;
 
+const ZIEL_OPTIONEN = ["keine", "proteinreich"] as const;
+
 type Diaet = (typeof DIAET_OPTIONEN)[number];
+type Ziel = (typeof ZIEL_OPTIONEN)[number];
 
 const MAX_ALLERGENE = 20;
 const ALLERGEN_MAX_LEN = 60;
 
 interface PreferencesRow {
   diaet: string;
+  ziel: string;
   allergene: string;
   updated_at: number;
 }
@@ -39,15 +43,16 @@ function parseAllergene(raw: string): string[] {
 }
 
 function rowToPreferences(row: PreferencesRow | null): UserPreferences {
-  if (!row) return { diaet: "keine", allergene: [], updatedAt: 0 };
+  if (!row) return { diaet: "keine", ziel: "keine", allergene: [], updatedAt: 0 };
   const diaet = DIAET_OPTIONEN.includes(row.diaet as Diaet) ? (row.diaet as Diaet) : "keine";
-  return { diaet, allergene: parseAllergene(row.allergene), updatedAt: row.updated_at };
+  const ziel = ZIEL_OPTIONEN.includes(row.ziel as Ziel) ? (row.ziel as Ziel) : "keine";
+  return { diaet, ziel, allergene: parseAllergene(row.allergene), updatedAt: row.updated_at };
 }
 
 /** Liest die Präferenzen eines Nutzers (Default bei fehlender Zeile). */
 export async function getPreferences(db: D1Database, userId: string): Promise<UserPreferences> {
   const row = await db
-    .prepare("SELECT diaet, allergene, updated_at FROM user_preferences WHERE user_id = ?")
+    .prepare("SELECT diaet, ziel, allergene, updated_at FROM user_preferences WHERE user_id = ?")
     .bind(userId)
     .first<PreferencesRow>();
   return rowToPreferences(row ?? null);
@@ -57,6 +62,9 @@ export async function getPreferences(db: D1Database, userId: string): Promise<Us
 export function preferencesPrompt(prefs: UserPreferences): string {
   const parts: string[] = [];
   if (prefs.diaet !== "keine") parts.push(`Diätform: ${prefs.diaet}`);
+  if (prefs.ziel === "proteinreich") {
+    parts.push("Ernährungsziel: proteinreich / fitnessorientiert (hoher Proteingehalt, passend zur Diätform)");
+  }
   if (prefs.allergene.length) parts.push(`Zutaten, die unbedingt vermieden werden müssen: ${prefs.allergene.join(", ")}`);
   if (!parts.length) return "";
   return `Achte auf die Nutzer-Vorgaben: ${parts.join(" · ")}`;
@@ -64,6 +72,7 @@ export function preferencesPrompt(prefs: UserPreferences): string {
 
 interface PreferencesBody {
   diaet?: unknown;
+  ziel?: unknown;
   allergene?: unknown;
 }
 
@@ -75,7 +84,7 @@ export async function handleGetPreferences(request: Request, env: Env): Promise<
   });
 }
 
-/** PUT /api/preferences – Diätform + Allergene speichern. */
+/** PUT /api/preferences – Diätform + Ziel + Allergene speichern. */
 export async function handleSavePreferences(request: Request, env: Env): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     const body = await readJson<PreferencesBody>(request);
@@ -83,6 +92,11 @@ export async function handleSavePreferences(request: Request, env: Env): Promise
     let diaet: Diaet = "keine";
     if (typeof body?.diaet === "string" && DIAET_OPTIONEN.includes(body.diaet as Diaet)) {
       diaet = body.diaet as Diaet;
+    }
+
+    let ziel: Ziel = "keine";
+    if (typeof body?.ziel === "string" && ZIEL_OPTIONEN.includes(body.ziel as Ziel)) {
+      ziel = body.ziel as Ziel;
     }
 
     let allergene: string[] = [];
@@ -96,13 +110,13 @@ export async function handleSavePreferences(request: Request, env: Env): Promise
 
     const updatedAt = Date.now();
     await env.DB.prepare(
-      `INSERT INTO user_preferences (user_id, diaet, allergene, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET diaet = excluded.diaet, allergene = excluded.allergene, updated_at = excluded.updated_at`
+      `INSERT INTO user_preferences (user_id, diaet, ziel, allergene, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET diaet = excluded.diaet, ziel = excluded.ziel, allergene = excluded.allergene, updated_at = excluded.updated_at`
     )
-      .bind(user.id, diaet, JSON.stringify(allergene), updatedAt)
+      .bind(user.id, diaet, ziel, JSON.stringify(allergene), updatedAt)
       .run();
 
-    return json({ preferences: { diaet, allergene, updatedAt } });
+    return json({ preferences: { diaet, ziel, allergene, updatedAt } });
   });
 }
