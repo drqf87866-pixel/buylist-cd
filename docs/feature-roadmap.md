@@ -50,39 +50,39 @@ Falls ja → das Feature muss unsichtbar (Automatik), versteckt (Sheet/Panel) od
 
 ## 3. Übersicht: Ausbaustufen
 
-| Stufe | Feature | Alltagsnutzen (Kern) | Aufwand | UI-Ort |
-|---|---|---|---|---|
-| 1 — Nächste Version | Duplikate & Mengen zusammenführen | Zwei Personen adden „Milch“ → eine Zeile statt zwei | mittel | unsichtbar |
-| 1 — Nächste Version | Verlauf / „Zuletzt gekauft“ | Wöchentliche Standardkäufe mit einem Tap wieder da | klein–mittel | Bottom-Sheet |
-| 1 — Nächste Version | Erledigte Items automatisch aufräumen | Liste bleibt von selbst aufgeräumt | klein | unsichtbar |
-| 2 — Mittelfristig | **Kochmodus** | Rezept fokussiert am Gerät abkochen, mit Timern | mittel–groß | eigene Route (Kap. 7) |
-| 2 — Mittelfristig | Kategorien / Markt-Laufweg | Liste in Supermarkt-Reihenfolge, kein Hin-und-Her-Laufen | mittel–groß | Abschnitts-Header (rein lesend) |
-| 2 — Mittelfristig | Wiederkehrende Items | „Toilettenpapier alle 2 Wochen“ erscheint von selbst | mittel–groß | eigener Bereich (Sheet) |
-| 3 — Später/Ideen | Grobe Ausgaben-Erfassung | „Was geben wir monatlich aus?“ — grob, kein Budget-Tool | mittel | eigener Screen ab Übersicht |
-| 3 — Später/Ideen | PWA + Web Push | Homescreen-Icon; „Liste geändert“-Stups für Partner | mittel–groß | unsichtbar + ein Toggle |
-| 3 — Später/Ideen | Mitglieder-Verwaltung | Wer ist in der Liste? Jemanden entfernen können | klein–mittel | Bottom-Sheet hinter 👥 |
-| 3 — Später/Ideen | Magic-Link / OAuth-Login | Familien-Onboarding ohne Passwort-Friction | mittel (+ externe Mail) | nur Login-Screen |
-| 3 — Später/Ideen | Dark Mode | Abends nicht geblendet werden | klein | unsichtbar/automatisch |
+| Stufe | Feature | Alltagsnutzen (Kern) | Aufwand | UI-Ort | Status |
+|---|---|---|---|---|---|
+| 1 — Nächste Version | Duplikate & Mengen zusammenführen | Zwei Personen adden „Milch“ → eine Zeile statt zwei | mittel | unsichtbar | **umgesetzt** |
+| 1 — Nächste Version | Verlauf / „Zuletzt gekauft“ | Wöchentliche Standardkäufe mit einem Tap wieder da | klein–mittel | Bottom-Sheet | **umgesetzt** |
+| 1 — Nächste Version | Erledigte Items automatisch aufräumen | Liste bleibt von selbst aufgeräumt | klein | unsichtbar | **umgesetzt** |
+| 2 — Mittelfristig | **Kochmodus** | Rezept fokussiert am Gerät abkochen, mit Timern | mittel–groß | eigene Route (Kap. 7) | **umgesetzt** |
+| 2 — Mittelfristig | Kategorien / Markt-Laufweg | Liste in Supermarkt-Reihenfolge, kein Hin-und-Her-Laufen | mittel–groß | Abschnitts-Header (rein lesend) | **umgesetzt** |
+| 2 — Mittelfristig | Wiederkehrende Items | „Toilettenpapier alle 2 Wochen“ erscheint von selbst | mittel–groß | eigener Bereich (Sheet) | **umgesetzt** |
+| 3 — Später/Ideen | Grobe Ausgaben-Erfassung | „Was geben wir monatlich aus?“ — grob, kein Budget-Tool | mittel | eigener Screen ab Übersicht | offen |
+| 3 — Später/Ideen | PWA + Web Push | Homescreen-Icon; „Liste geändert“-Stups für Partner | mittel–groß | unsichtbar + ein Toggle | **umgesetzt** |
+| 3 — Später/Ideen | Mitglieder-Verwaltung | Wer ist in der Liste? Jemanden entfernen können | klein–mittel | Bottom-Sheet hinter 👥 | **umgesetzt** |
+| 3 — Später/Ideen | Magic-Link / OAuth-Login | Familien-Onboarding ohne Passwort-Friction | mittel (+ externe Mail) | nur Login-Screen | offen |
+| 3 — Später/Ideen | Dark Mode | Abends nicht geblendet werden | klein | unsichtbar/automatisch | offen |
 
 ---
 
 ## 4. Stufe 1 — Nächste Version
 
-### 4.1 Duplikate & Mengen zusammenführen
+### 4.1 Duplikate & Mengen zusammenführen — **umgesetzt**
 
 - **Alltagsproblem:** In einem Haushalt adden zwei Personen unabhängig voneinander „Milch“ — aktuell entstehen zwei getrennte Items. Im Laden hakt man eine ab und übersieht die zweite, oder kauft doppelt.
 - **Technische Einordnung:** Aufwand **mittel**. Rein im Durable Object: Beim `add`/`add-items` den Namen normalisieren (trim, Kleinschreibung) und bei Treffer das vorhandene Item behalten — Menge als Freitext anreichern (`„500 g · +1 l“`) bzw. `hinzugefuegtVon` ergänzen. Kein neuer Cloudflare-Baustein, keine Schema-Änderung. Der Full-State-Sync verteilt das Ergebnis automatisch an alle Geräte. Grenzfall, der bewusst einfach bleiben darf: exakte normalisierte Treffer genügen; unscharfe Ähnlichkeitserkennung („Semmel“ vs. „Brötchen“) ist nicht Stufe 1.
 - **UI-Einordnung:** **Unsichtbar.** Das Ergebnis ist schlicht weniger Müll in der Liste. Besticht: der Erstnutzer-Test ist trivial erfüllt, weil es nichts zu sehen gibt.
 - **Erstnutzer-Test:** bestanden — null neue Bedienelemente.
 
-### 4.2 Verlauf / „Zuletzt gekauft“
+### 4.2 Verlauf / „Zuletzt gekauft“ — **umgesetzt**
 
 - **Alltagsproblem:** Milch, Butter, Brot, Kaffee — dieselben Sachen jede Woche. Heute tippt man sie jedes Mal neu ein; Löschen ist endgültig, es gibt kein Gedächtnis der App.
 - **Technische Einordnung:** Aufwand **klein–mittel**. Beim Abhaken (toggle auf `erledigt`) den Zeitpunkt im Item verbuchen (`gekauftAm`) und daraus eine Verlaufsliste im DO-Blob ableiten (normalisierter Name → letztes Kaufdatum, auf z. B. die letzten 100 Einträge begrenzt). Alles im bestehenden DO, kein D1, kein neuer Baustein; der Verlauf reist im bestehenden `sync`-Frame mit. Neue WebSocket-/REST-Aktion `re-add` ist trivial.
 - **UI-Einordnung:** **Bottom-Sheet „Zuletzt gekauft“** mit Chips („Milch · vor 5 Tagen“), Tap = wieder auf die Liste. Einstieg über ein bereits vorhandenes, bisher totes Element: die Fortschrittszeile („x von y erledigt“) wird antippbar. Kein neuer Button, kein Icon in der Leiste.
 - **Erstnutzer-Test:** bestanden — wer die Zeile nie antippt, sieht nichts Neues.
 
-### 4.3 Erledigte Items automatisch aufräumen
+### 4.3 Erledigte Items automatisch aufräumen — **umgesetzt**
 
 - **Alltagsproblem:** Die „erledigt“-Sektion wächst unbegrenzt; der manuelle „Entfernen“-Button wird vergessen. Nach zwei Wochen wirkt die Liste unordentlich — genau das, was die App verhindern soll.
 - **Technische Einordnung:** Aufwand **klein**. **DO Alarms**: Beim ersten abgehakten Item `setAlarm()` setzen; im Alarm alles entfernen, was länger als 24–48 h erledigt ist. Alarms sind bei SQLite-backed DOs (so wie hier angelegt) verfügbar und kosten nichts Extra. Wichtig: erst nach 4.2 liefern, damit abgehakte Items ihre Verlauf-Verbuchung bekommen haben, bevor sie verschwinden.
@@ -93,11 +93,11 @@ Falls ja → das Feature muss unsichtbar (Automatik), versteckt (Sheet/Panel) od
 
 ## 5. Stufe 2 — Mittelfristig
 
-### 5.1 Kochmodus
+### 5.1 Kochmodus — **umgesetzt**
 
 Das ausgearbeitete Kernfeature dieser Roadmap — **siehe Kapitel 7**. Aufwand **mittel–groß**, überwiegend Frontend-Arbeit (ein neuer View + Route), weil Rezept-Datenmodell und „Auf die Liste“-Flow bereits existieren.
 
-### 5.2 Kategorien / Sortierung nach Supermarkt-Layout
+### 5.2 Kategorien / Sortierung nach Supermarkt-Layout — **umgesetzt**
 
 - **Alltagsproblem:** Die Liste ist nach Zeitstempel sortiert. Im Supermarkt läuft man dadurch hin und her: erst „Toilettenpapier“, dann hinten „Obst“, dann wieder vorn „Milch“.
 - **Technische Einordnung:** Aufwand **mittel–groß**. Item-Shape im DO um ein optionales `kategorie?`-Feld erweitern (einmalige Normalisierung bestehender Items beim Laden = „Migration“ des Blobs). Feste Standard-Reihenfolge der Abteilungen (Obst/Gemüse → Backwaren → Kühlregal → …), pro Liste optional änderbar. Für die automatische Zuordnung liegt ein trümpfender Baustein bereit: der **existierende Gemini-Key** — Zutaten werden beim Add gebatcht klassifiziert, Fallback „Sonstiges“. Alternativ komplett regelbasiert (Wörterbuch) ohne LLM-Kosten; LLM nur als Korrekturschicht. Kein neuer Cloudflare-Baustein erforderlich.
@@ -121,13 +121,13 @@ Das ausgearbeitete Kernfeature dieser Roadmap — **siehe Kapitel 7**. Aufwand *
 - **Technische Einordnung:** Aufwand **mittel**. D1-Tabelle `einkaeufe` (`list_id`, `datum`, `betrag`, optionale Notiz). Erfassung als Einzelsumme nach dem Einkauf (im „erledigt“-Kontext optional), **keine Einzelpreise pro Item** — das würde den Abhak-Flow belasten und den Erstnutzer-Test verletzen. Keine neuen Bausteine.
 - **UI-Einordnung:** Eigener „Ausgaben“-Screen, erreichbar ab der Listen-Übersicht — vollständig getrennt vom Einkaufsflow.
 
-### 6.2 PWA + Web Push
+### 6.2 PWA + Web Push — **umgesetzt**
 
 - **Alltagsproblem:** (a) App soll wie eine App auf dem Homescreen liegen, ohne Browser-Leiste. (b) „Schatz, ich habe die Liste aktualisiert“ — der Partner soll den Stups aufs Handy bekommen, während er im Laden steht.
 - **Technische Einordnung:** Aufwand **mittel–groß**. Manifest + Service Worker (Teil a, klein) und VAPID-Web-Push (Teil b): Push-Subscriptions in D1, Versand per `fetch` aus dem DO beim Sync-Ereignis. Für den heutigen Umfang **keine Queues nötig**; bei Wachstum können Queues dazukommen. Erstes/features-echtes Deploy-Thema: Service-Worker-Versionierung.
 - **UI-Einordnung:** Install-Hinweis dezent einmalig; Push-Toggle ausschließlich im Listen-Sheet. Standardansicht bleibt unberührt.
 
-### 6.3 Mitglieder-Verwaltung
+### 6.3 Mitglieder-Verwaltung — **umgesetzt**
 
 - **Alltagsproblem:** Nach WG-Auszug oder Trennung bleibt die Person in der Liste; heute sieht man gar nicht, wer Mitglied ist, und niemand kann jemanden entfernen.
 - **Technische Einordnung:** Aufwand **klein–mittel**. `list_memberships` mit Rollen existiert bereits; es fehlen die Routen (Mitglieder auflisten, entfernen) plus Owner-Schutzlogik (z. B. letzter Owner kann Liste verlassen/löschen). Kein neuer Baustein.
@@ -221,7 +221,7 @@ Damit gilt für die Roadmap insgesamt: Stufe 1 macht die App *besser, ohne sicht
 
 ---
 
-## 9. Umgesetzt (Stand 2026-08-30)
+## 9. Umgesetzt (Stand 2026-09-10)
 
 Die folgenden Vorschläge aus `docs/feature-roadmap.md` sowie dem Analyse-Papier
 (`.kilo/plans/`) sind inzwischen umgesetzt und per `scripts/realtime-test.mjs` verifiziert:
@@ -259,10 +259,38 @@ Die folgenden Vorschläge aus `docs/feature-roadmap.md` sowie dem Analyse-Papier
   den Koch-Assistenten. Alle Gemini-Pfade teilen sich den globalen
   Rate-Limiter (12/min, Puffer unter den 15/min des Free-Tiers).
 
+- **Duplikat-Zusammenführung (4.1), Verlauf (4.2) und Auto-Aufräumen (4.3):** Die
+  gesamte Stufe 1 steht. `mergeOrAdd` (`src/do/list-logic.ts`) führt Artikel mit
+  gleichem normalisiertem Namen **und** gleichem Markt zusammen und reichert die
+  Freitext-Menge an („500 g · +1 l“). Abhaken schreibt `gekauftAm`, füttert den
+  Verlauf im DO-Blob (`history`, max. 100 Einträge, im Sheet „Zuletzt gekauft“
+  mit einem Tap wiederbestellbar) und setzt den DO-Alarm, der erledigte Artikel
+  24 h später entfernt.
+
+- **Kategorien / Sortierung nach Supermarkt-Layout (5.2):** Ohne LLM gelöst — ein
+  Stichwort-Wörterbuch (`public/data/categories.json`) ordnet jeden Artikel zu
+  (`classify()`, längster Treffer gewinnt), die Liste gruppiert in fester
+  Markt-Reihenfolge und zeigt die rein lesenden Abschnitts-Header erst ab zwei
+  Gruppen. Dieselben Kategorie-Ids sind als Enum im Gemini- und Groq-Schema
+  verdrahtet, damit generierte Zutaten direkt einsortiert ankommen. Kein Setup,
+  keine Kategorien-Verwaltung — wie im Kapitel gefordert.
+
+- **Supermarkt pro Artikel (nicht in der Roadmap vorgesehen):** Über der Liste
+  sitzt eine Markt-Zeile: links der aktive Markt fürs Hinzufügen, daneben
+  Filter-Chips, die aus den tatsächlich vorhandenen Märkten entstehen und mit
+  ihrem letzten Artikel wieder verschwinden. Der Markt ist Teil des
+  Merge-Schlüssels — „Milch @ Rewe“ und „Milch @ Edeka“ bleiben zwei Zeilen.
+
+- **Sprach-Dump in der Add-Bar:** Wirkt der eingetippte oder diktierte Text wie
+  eine Mini-Liste (`looksLikeDump`), zerlegt ihn Groq (`src/parse.ts`) in
+  einzelne Artikel, die vor dem Übernehmen einzeln abwählbar sind; ohne KI
+  greift die lokale Zerlegung (`splitDumpLocal`). Groq hat ein eigenes
+  Rate-Limiter-Kontingent (27/min), getrennt von Gemini.
+
+- **Ernährungsziel im Essens-Profil:** Neben der Diätform gibt es ein
+  kombinierbares Ziel (aktuell „proteinreich“, Migration `0009`), das über
+  `preferencesPrompt()` in Rezepte und Tagesvorschläge einfließt.
+
 Noch offen aus der Roadmap: grobe Ausgaben-Erfassung (6.1), Magic-Link/OAuth (6.4),
 Dark Mode (6.5), Aufgabenzuweisung, Meal-Planning (Ausbaustufe: Wochenplan),
 Vorratsverwaltung.
-
----
-
-*Technische Nebenbaustelle am Rande (kein Feature): In `wrangler.jsonc` existiert eine unbenutzte Zweit-Bindung `buylist_db` auf dieselbe Datenbank — kann beim nächsten Anlass entfernt werden.*

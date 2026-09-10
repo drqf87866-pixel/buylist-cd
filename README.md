@@ -20,39 +20,73 @@ externen Dienste.
 
 ## Weitere Features
 
+- **Kategorien & Supermarkt**: Artikel werden über ein Stichwort-Wörterbuch
+  (`public/data/categories.json`) automatisch einsortiert und in fester
+  Markt-Reihenfolge gruppiert; optional trägt jeder Artikel einen Supermarkt,
+  nach dem sich die Liste filtern lässt
+- **Sprach-Dump in der Add-Bar**: „Milch 2l, Brot, 6 Eier“ wird über Groq in
+  einzelne Artikel zerlegt (mit lokalem Fallback ohne KI) und vor dem
+  Übernehmen zur Auswahl gestellt
+- **Verlauf & Auto-Aufräumen**: Abgehaktes wandert in „Zuletzt gekauft“
+  (ein Tap = wieder auf der Liste) und verschwindet 24 h später von selbst
+- **Wiederkehrende Artikel**: „Toilettenpapier alle 2 Wochen“ – ein täglicher
+  Cron legt fällige Artikel automatisch auf die Liste
 - **Rezepte & Koch-Assistent**: Gemini-generierte Rezepte (Gericht **oder**
   „aus meinen Zutaten“ = Resteverwertung), Zutaten-Auswahl vor dem
   Übertragen, Kochmodus mit Timer & Portions-Skalierung – alles im
   eigenständigen Rezepte-Tab
-- **Essens-Profil**: Diätform + Allergene pro Nutzer, fließt in den
-  Gemini-Prompt ein
+- **Gerichte zuschalten**: Ein gespeichertes Gericht auf die Liste schalten
+  legt seine Zutaten mit Herkunfts-Tag an; Abschalten nimmt die offenen
+  Zutaten wieder weg, Gekauftes bleibt
+- **Tagesvorschläge**: 5 KI-Gerichte pro Nutzer und Tag, nachts vorgeneriert
+  und jederzeit neu würfelbar
+- **Essens-Profil**: Diätform, Ernährungsziel und Allergene pro Nutzer,
+  fließen in jeden Gemini-Prompt ein
 - **Mitgliederverwaltung**: Mitgliederliste, Entfernen, Owner-Übertragung,
   Liste verlassen (Rollen `owner`/`member`); geht der Owner, überträgt er die
   Rolle automatisch an das früheste verbleibende Mitglied – als letztes
   Mitglied löscht das Verlassen die Liste; der Owner kann sie jederzeit löschen
-- **PWA + Offline**: installierbar (Manifest), App-Shell wird gecacht
+- **PWA + Offline**: installierbar (Manifest inkl. Shortcuts), App-Shell wird
+  gecacht
 - **Web Push**: Benachrichtigungen bei Listen-Änderungen (VAPID, siehe Setup)
 
 ## Architektur
 
 ```
 Browser (SPA: Vanilla HTML/CSS/JS, public/)
-  │  REST: /api/auth/*, /api/lists, /api/list/:id/snapshot
+  │  REST: /api/auth/*, /api/lists, /api/list/:id/*, /api/recipes, /api/suggestions
   │  WebSocket: /api/list/:id/ws
   ▼
 Worker (src/index.ts) ── statische Assets über ASSETS-Binding (SPA-Fallback)
-  │  Session-Check (D1) + Membership-Check vor jedem API-Call & Upgrade
+  │  fetch()     Session-Check (D1) + Membership-Check vor jedem API-Call & Upgrade
+  │  scheduled() täglicher Cron (05:00 UTC): fällige wiederkehrende Artikel,
+  │              Tagesvorschläge vorgenerieren, Rezept-Cache aufräumen
+  │
+  ├─► Durable Object ShoppingListDO (pro Liste, idFromName(listId))
+  │     WebSocket Hibernation API (acceptWebSocket, Auto-Ping/Pong)
+  │     State: JSON unter einem Key im SQLite-backed DO-Storage
+  │     Broadcast: {type:"sync", list} an alle verbundenen Clients
+  │     Alarm: erledigte Artikel 24 h nach dem Abhaken entfernen
+  │
+  ├─► Durable Object RateLimiterDO (globale Singletons "gemini" und "groq")
+  │     rollierendes 60-s-Fenster, Limit per ?max= (Gemini 12/min, Groq 27/min)
+  │
+  ├─► Gemini API: Rezepte (src/recipes.ts) + Tagesvorschläge (src/suggestions.ts)
+  └─► Groq API:   Sprach-Dump der Add-Bar (src/parse.ts)
   ▼
-Durable Object ShoppingListDO (pro Liste, idFromName(listId))
-  │  WebSocket Hibernation API (acceptWebSocket, Auto-Ping/Pong)
-  │  State: JSON unter einem Key im SQLite-backed DO-Storage
-  │  Broadcast: {type:"sync", list} an alle verbundenen Clients
-  ▼
-D1 (SQLite): users, lists, list_memberships, sessions
+D1 (SQLite): users, sessions, lists, list_memberships, recipes, recurring_items,
+             user_preferences, push_subscriptions, daily_suggestions, recipe_cache
 ```
 
 Wichtige Design-Entscheidungen:
 
+- **Autorisierung liegt vollständig im Worker.** Das Durable Object prüft keine
+  Rechte – es vertraut dem Kontext, den der Worker nach Session- und
+  Membership-Check übergibt. Jeder neue DO-Endpunkt braucht seinen Check also
+  im Worker davor.
+- **Der Listen-Blob wächst nur additiv**: neue Felder (`history?`,
+  `aktiveGerichte?`, `quelle?`) sind optional, alte Blobs bleiben lesbar.
+  Deshalb kamen Verlauf und zugeschaltete Gerichte ohne Migration aus.
 - **Passwort-Hashing**: PBKDF2-SHA256 (100.000 Iterationen, 16-Byte-Salt,
   `timingSafeEqual`) über `crypto.subtle` – nativ in der Workers-Runtime, kein
   npm-Dependency. Hash-Format: `pbkdf2:<iter>:<salt-b64url>:<hash-b64url>`.
@@ -86,6 +120,18 @@ Vorlage: [`.dev.vars.example`](./.dev.vars.example).
 ### Tests
 
 ```bash
+npm run typecheck   # tsc --noEmit
+npm test            # Unit-Tests (Node-Test-Runner)
+```
+
+`npm test` deckt die reine Logik ohne Worker-Runtime ab: Merge-/Verlauf-Logik
+des DO (`src/do/list-logic.test.ts`), Sprach-Dump-Sanitizing
+(`src/parse.test.ts`), Web-Push-Krypto gegen feste Vektoren
+(`src/push-crypto.test.ts`), das Rate-Limit-Fenster
+(`src/do/rate-limiter.test.ts`) und die Frontend-Helfer aus `app-core.mjs`
+(`test/frontend-core.test.mjs`).
+
+```bash
 node scripts/realtime-test.mjs
 ```
 
@@ -95,6 +141,10 @@ Invite-Token, Negativ-Fälle (401/404), WebSocket-Realtime (add/toggle/delete
 an zwei Clients), Persistenz nach Reconnect, die Ablehnung von
 Nicht-Mitgliedern sowie Mitglieder-Verwaltung, Präferenzen, Zutaten-Generate
 und den VAPID-Status.
+
+Die CI (`.github/workflows/ci.yml`) fährt bei jedem Push und PR dieselbe Kette:
+Typecheck → Unit-Tests → lokale D1-Migration → `wrangler dev` starten →
+Realtime-Test.
 
 ## Web Push (optional)
 
@@ -142,7 +192,7 @@ wrangler secret put GROQ_API_KEY
 npx wrangler d1 create buylist-cd-db
 
 # 2. Die ausgegebene database_id in wrangler.jsonc eintragen
-#    (ersetzt REPLACE_WITH_YOUR_D1_DATABASE_ID)
+#    (Feld "database_id" im Block "d1_databases")
 
 # 3. Schema auf der Remote-DB anwenden
 npm run db:migrate:remote
@@ -151,25 +201,46 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
-Beim ersten `wrangler deploy` wird die Durable-Object-Migration `v1`
-(`new_sqlite_classes`) automatisch mit ausgerollt.
+Beim ersten `wrangler deploy` werden die Durable-Object-Migrationen `v1` und `v2`
+(`new_sqlite_classes` für `ShoppingListDO` und `RateLimiterDO`) automatisch mit
+ausgerollt.
 
 ## Projektstruktur
 
 ```
-├── wrangler.jsonc          # Assets, D1, DO-Binding, Migration (new_sqlite_classes)
-├── migrations/0001_init.sql# D1-Schema
+├── wrangler.jsonc              # Assets, D1, DO-Bindings, Cron, DO-Migrationen
+├── migrations/                 # D1-Schema (0001_init … 0009_preferences_ziel)
 ├── src/
-│   ├── index.ts            # Router: /api/* + ASSETS-Fallback, WS-Upgrade
-│   ├── types.ts            # Env, Datenmodell, WS-Message-Typen
-│   ├── util.ts             # JSON-Responses, Cookie-Parsing, Body-Limit
-│   ├── crypto.ts           # PBKDF2, SHA-256, timing-safe Compare
-│   ├── session.ts          # Sessions, sliding renewal, withAuth
-│   ├── auth.ts             # register / login / logout / me
-│   ├── lists.ts            # Listen CRUD, Join, Invite, Snapshot
-│   └── do/shopping-list.ts # ShoppingListDO (Hibernation, Storage, Broadcast)
-├── public/                 # SPA (kein Build-Step): index.html, app.js, style.css
-└── scripts/realtime-test.mjs
+│   ├── index.ts                # Router: /api/* + ASSETS-Fallback, WS-Upgrade, Cron
+│   ├── types.ts                # Env, Datenmodell, WS-Message-Typen
+│   ├── util.ts                 # JSON-Responses, 404-Helfer, Cookie, Body-Limit, normKey
+│   ├── crypto.ts               # PBKDF2, SHA-256, base64url, Zufallstoken
+│   ├── session.ts              # Sessions, sliding renewal, withAuth
+│   ├── auth.ts                 # register / login / logout / me
+│   ├── lists.ts                # Listen-CRUD, Join, Invite, Snapshot, Access-Helfer
+│   ├── members.ts              # Mitglieder, Entfernen, Owner-Transfer, Verlassen
+│   ├── preferences.ts          # Essens-Profil + Prompt-Baustein für alle LLM-Pfade
+│   ├── recipes.ts              # Gemini-Aufruf, Rezept-CRUD, Cache, Gerichte zu-/abschalten
+│   ├── suggestions.ts          # Tagesvorschläge (5/Nutzer/Tag) inkl. Cron-Vorlauf
+│   ├── recurring.ts            # Wiederkehrende Artikel + täglicher Cron
+│   ├── parse.ts                # Sprach-Dump der Add-Bar über Groq
+│   ├── push.ts                 # Web Push: VAPID-JWT, Versand, Subscriptions
+│   ├── push-crypto.ts          # Reine Push-Krypto (HKDF, ECDH, aes128gcm), testbar
+│   └── do/
+│       ├── shopping-list.ts    # ShoppingListDO (Hibernation, Storage, Broadcast, Alarm)
+│       ├── list-logic.ts       # Merge-, Mengen- und Verlauf-Logik (rein, unit-getestet)
+│       └── rate-limiter.ts     # RateLimiterDO (rollierendes 60-s-Fenster)
+├── public/                     # SPA (kein Build-Step)
+│   ├── index.html, style.css
+│   ├── app.js                  # SPA: Router, Views, Sheets, WebSocket-Client
+│   ├── app-core.mjs            # Reine Helfer (ESM, in Node testbar, als window.BC)
+│   ├── sw.js                   # Service Worker: App-Shell-Cache, Push, Notification
+│   ├── manifest.webmanifest    # PWA-Manifest inkl. Icons und Shortcuts
+│   ├── data/categories.json    # Kategorie-Wörterbuch (Client-Sortierung + LLM-Enum)
+│   └── vendor/qrcode.js        # QR-Code für den Invite-Link
+├── test/frontend-core.test.mjs # Unit-Tests der Frontend-Helfer
+├── scripts/                    # realtime-test.mjs, make-icons.mjs
+└── .github/workflows/ci.yml    # Typecheck, Unit-Tests, Realtime-Test
 ```
 
 ## API-Überblick
@@ -181,6 +252,7 @@ Beim ersten `wrangler deploy` wird die Durable-Object-Migration `v1`
 | POST | `/api/auth/logout` | Session löschen, Cookie entfernen |
 | GET | `/api/auth/me` | Aktueller User (Session-Check) |
 | GET/POST | `/api/lists` | Eigene Listen / neue Liste anlegen |
+| DELETE | `/api/list/:id` | Liste löschen (nur Owner) |
 | POST | `/api/join` | `{token}` aus Invite-Link → Liste beitreten |
 | GET | `/api/list/:id/snapshot` | Aktueller Listenstand (REST, initiales Laden) |
 | GET | `/api/list/:id/invite` | Invite-Link der Liste |
@@ -189,23 +261,32 @@ Beim ersten `wrangler deploy` wird die Durable-Object-Migration `v1`
 | DELETE | `/api/list/:id/members` | Mitglied entfernen (nur Owner) `{userId}` |
 | POST | `/api/list/:id/owner` | Owner-Rolle übertragen `{userId}` |
 | POST | `/api/list/:id/leave` | Liste verlassen (Owner-Rolle geht automatisch über; als letztes Mitglied wird die Liste gelöscht) |
-| DELETE | `/api/list/:id` | Liste löschen (nur Owner) |
-| GET/PUT | `/api/preferences` | Essens-Profil: `{diaet, allergene[]}` |
-| POST | `/api/list/:id/generate` | Rezept generieren `{gericht}` oder `{zutaten[]}` |
+| POST | `/api/list/:id/items` | Mehrere Artikel auf die Liste legen `{items[]}` |
+| GET/PUT | `/api/preferences` | Essens-Profil: `{diaet, ziel, allergene[]}` |
+| POST | `/api/list/:id/generate` | Rezept generieren `{gericht}` oder `{zutaten[]}` (Gemini) |
 | POST | `/api/list/:id/parse` | Sprach-Dump zerlegen `{text, vorhandene?}` → `{items}` (Groq) |
-| POST | `/api/list/:id/recipes` | Rezept speichern + Zutaten auf die Liste (optional `aufListe`) |
+| GET | `/api/list/:id/recipes` | Gespeicherte Rezepte dieser Liste |
+| POST | `/api/list/:id/recipes` | Rezept in der Sammlung speichern (kommt erst beim Zuschalten auf die Liste) |
+| DELETE | `/api/list/:id/recipes/:recipeId` | Rezept löschen |
+| GET | `/api/recipes` | Alle Rezepte über alle eigenen Listen |
+| POST | `/api/list/:id/gerichte` | Gerichte zuschalten `{gerichte:[{id, nur?, supermarkt?}]}` |
+| DELETE | `/api/list/:id/gerichte/:gerichtId` | Gericht abschalten (offene Zutaten fliegen von der Liste) |
+| GET/POST | `/api/list/:id/recurring` | Wiederkehrende Artikel lesen / anlegen |
+| DELETE | `/api/list/:id/recurring/:ruleId` | Regel löschen |
+| GET | `/api/suggestions` | Heutige Gerichte-Vorschläge (bei Bedarf on demand generiert) |
+| POST | `/api/suggestions/refresh` | Vorschläge neu würfeln |
 | POST | `/api/push/subscribe` | Web-Push-Subscription speichern `{endpoint, keys}` |
 | POST | `/api/push/unsubscribe` | Web-Push-Subscription entfernen `{endpoint}` |
 | GET | `/api/push/vapid-key` | Öffentlicher VAPID-Key (oder `configured: false`) |
 
-## Später (nice-to-have, nicht im MVP)
+## Später (nice-to-have)
 
 - Magic-Link-Login per E-Mail (z. B. über Resend; braucht Account + API-Key –
   deshalb bewusst nicht im MVP, das reine Cloudflare-Deployment bleibt so
   abhängigkeitsfrei)
-- Kategorien/Sortierung, Auto-Cleanup erledigter Items (DO Alarm API)
-- PWA-Manifest + Service Worker, Web Push bei neuen Items
+- Wochen-Essensplan (baut auf der Gerichte-Sammlung und dem Zuschalten auf)
+- Grobe Ausgaben-Erfassung, Dark Mode
 - Profilbilder via R2, OAuth-Login (z. B. Google)
 
- 
- 
+Ausführlicher in [`docs/feature-roadmap.md`](./docs/feature-roadmap.md) und
+[`docs/optimierungen-und-features.md`](./docs/optimierungen-und-features.md).
