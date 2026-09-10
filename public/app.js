@@ -1851,14 +1851,20 @@
             if (erledigt) return;
             gespeichert = true;
             const saved = data.rezept ?? recipe;
+            // Rezept sofort als Gericht zuschalten, damit die Zutaten als
+            // Artikel auf der Liste erscheinen.
+            await api(`/api/list/${newListId}/gerichte`, {
+              body: { gerichte: [{ id: saved.id }] },
+            });
+            if (erledigt) return;
             localStorage.setItem("bl-last-list", newListId);
             const zielListe = newListId;
             const rezeptId = saved.id;
-            toast("Gericht gespeichert");
+            toast("Gericht gespeichert & zugeschaltet");
             bodyWrap.replaceChildren(
               el("p", { class: "gen-finish-icon", "aria-hidden": "true", text: "🎉" }),
-              el("p", { class: "gen-finish-title", text: "Gespeichert!" }),
-              el("p", { class: "sheet-sub muted gen-finish-sub", text: `„${saved.titel}“ liegt auf der neuen Liste „${listenName}“.` }),
+              el("p", { class: "gen-finish-title", text: "Gespeichert & zugeschaltet!" }),
+              el("p", { class: "sheet-sub muted gen-finish-sub", text: `„${saved.titel}“ ist jetzt auf der Liste „${listenName}“ und die Zutaten liegen bereit.` }),
               el(
                 "div",
                 { class: "gen-finish-actions" },
