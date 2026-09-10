@@ -227,6 +227,59 @@ function peelMenge(part) {
   return { name: part };
 }
 
+/** Food-Emoji pro Kategorie-Id für den Cover-Fallback. */
+const COVER_EMOJI = {
+  "obst-gemuese": "🥗",
+  "brot-backwaren": "🥖",
+  molkerei: "🧀",
+  "fleisch-fisch": "🥩",
+  trockenware: "🥫",
+  "suesses-snacks": "🍰",
+  getraenke: "🍹",
+  tiefkuehl: "❄️",
+  haushalt: "🧴",
+  tier: "🦴",
+  sonstiges: "🍽️",
+};
+
+/** Einfacher deterministischer String-Hash (djb2). */
+function hashStr(s) {
+  let hash = 5381;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) + hash + s.charCodeAt(i)) & 0xffffffff;
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Deterministischer Cover-Ersatz für Rezepte ohne KI-Bild:
+ * - Gradient aus dem Titel-Hash
+ * - Food-Emoji aus der dominanten Zutaten-Kategorie
+ * Gibt ein Objekt { gradient, emoji } zurück.
+ */
+export function coverFor(recipe) {
+  const h = hashStr(recipe.titel ?? "");
+  const hue = h % 360;
+  const sat = 30 + (h % 30);
+  const light = 70 + (h % 15);
+  const hue2 = (hue + 40 + (h % 60)) % 360;
+  const gradient = `linear-gradient(135deg, hsl(${hue}, ${sat}%, ${light}%), hsl(${hue2}, ${sat + 10}%, ${light - 10}%))`;
+
+  // Dominante Kategorie aus den Zutaten ermitteln
+  const zutaten = recipe.zutaten ?? [];
+  const counts = {};
+  for (const z of zutaten) {
+    const k = z.kategorie ?? "sonstiges";
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  let best = "sonstiges";
+  let bestCount = 0;
+  for (const [k, c] of Object.entries(counts)) {
+    if (c > bestCount) { bestCount = c; best = k; }
+  }
+  return { gradient, emoji: COVER_EMOJI[best] ?? "🍽️" };
+}
+
 // Global für das klassische app.js (Module laufen vor defer-Scripts aus).
 if (typeof window !== "undefined") {
   window.BC = {
@@ -246,5 +299,6 @@ if (typeof window !== "undefined") {
     parseMengeParts,
     composeMenge,
     formatItemMenge,
+    coverFor,
   };
 }

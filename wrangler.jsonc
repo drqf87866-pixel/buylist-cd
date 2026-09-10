@@ -4,14 +4,17 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-08-01",
 	"triggers": {
-		"crons": ["0 5 * * *"]
+		"crons": [
+			"0 5 * * *"
+		]
 	},
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
 		"run_worker_first": [
-			"/api/*"
+			"/api/*",
+			"/media/*"
 		]
 	},
 	"d1_databases": [
@@ -19,6 +22,16 @@
 			"binding": "DB",
 			"database_name": "buylist-cd-db",
 			"database_id": "c511f741-c74c-4d4c-8387-181fdd8b072c"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "RECIPE_IMAGES",
+			"bucket_name": "buylist-recipe-images"
+		},
+		{
+			"bucket_name": "buylist-recipe-images",
+			"binding": "buylist_recipe_images"
 		}
 	],
 	"durable_objects": {

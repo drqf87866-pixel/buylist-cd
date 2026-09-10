@@ -4,10 +4,15 @@ export interface Env {
   /** Globaler Singleton für das Gemini-Freelimit (12 Anfragen/min). */
   RATE_LIMITER_DO: DurableObjectNamespace;
   ASSETS: Fetcher;
+  RECIPE_IMAGES: R2Bucket;
   /** Worker-Secret, siehe .dev.vars (lokal) bzw. `wrangler secret put` (Produktion). */
   GEMINI_API_KEY?: string;
   /** Gemini-Modellname; Default in src/recipes.ts, überschreibbar per Secret/Env. */
   GEMINI_MODEL?: string;
+  /** OpenRouter-Key für die Bildgenerierung (Rezept-Fotos); optional – ohne Key wird der Emoji-Fallback gezeigt. */
+  OPENROUTER_API_KEY?: string;
+  /** OpenRouter-Image-Modellname; Default in src/recipes.ts. */
+  OPENROUTER_IMAGE_MODEL?: string;
   /** Groq-Key für den Sprach-Dump-Parser (Add-Bar). */
   GROQ_API_KEY?: string;
   /** Groq-Modellname; Default in src/parse.ts. */
@@ -147,6 +152,10 @@ export interface Recipe {
   zutaten: RecipeIngredient[];
   schritte: RecipeStep[];
   createdAt?: number;
+  /** Öffentliche URL zum Rezept-Bild (generiert aus bild_key). */
+  bildUrl?: string;
+  /** Status des asynchron generierten Rezept-Bilds. */
+  bildStatus?: "pending" | "fertig" | "fehler";
 }
 
 /**

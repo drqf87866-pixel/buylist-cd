@@ -1702,6 +1702,154 @@ body.has-nav .container {
   padding: 0 10px;
 }
 
+/* ---------- Rezept-Kacheln (Grid-Ansicht) ---------- */
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+@media (min-width: 640px) {
+  .recipe-grid {
+    grid-template-columns: repeat(3, 1fr);
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}
+
+.recipe-tile {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 14px;
+}
+
+.recipe-tile:active {
+  transform: scale(0.97);
+}
+
+.recipe-tile-img {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.recipe-tile-emoji {
+  font-size: 2.4rem;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.recipe-tile-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.recipe-tile.has-image .recipe-tile-emoji {
+  display: none;
+}
+
+.recipe-tile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+}
+
+.recipe-tile-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recipe-tile-meta {
+  font-size: 0.75rem;
+}
+
+/* ---------- Detail-Sheet: Rezept-Hero ---------- */
+
+.recipe-sheet-hero {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.recipe-sheet-hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.recipe-sheet-hero-emoji {
+  font-size: 4rem;
+  line-height: 1;
+  opacity: 0.4;
+}
+
+.recipe-sheet-body {
+  padding: 12px 20px 0;
+}
+
+.recipe-sheet-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.15rem;
+  margin: 0 0 4px;
+}
+
+.recipe-sheet-meta {
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+
+.recipe-sheet-body .recipe-actions {
+  margin: 16px 0 8px;
+}
+
+/* ---------- FAB (Floating Action Button) ---------- */
+
+.fab {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom) + 80px);
+  right: 20px;
+  z-index: 30;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: var(--leaf);
+  color: #fff;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(21, 92, 52, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fab:active {
+  transform: scale(0.92);
+  box-shadow: 0 2px 8px rgba(21, 92, 52, 0.25);
+}
+
 .list-error {
   list-style: none;
 }

@@ -36,7 +36,15 @@ externen Dienste.
 - **Rezepte & Koch-Assistent**: Gemini-generierte Rezepte (Gericht **oder**
   „aus meinen Zutaten“ = Resteverwertung), Zutaten-Auswahl vor dem
   Übertragen, Kochmodus mit Timer & Portions-Skalierung – alles im
-  eigenständigen Rezepte-Tab
+  eigenständigen Rezepte-Tab. Der Assistent öffnet sich über einen FAB
+  (Floating Action Button), die gespeicherten Rezepte erscheinen als
+  **Bild-Kachelgrid** (2 Spalten, 3 ab 640px) mit Detail-Sheet
+- **KI-Rezeptbilder**: Beim Speichern eines Rezepts generiert die OpenRouter
+  Images API (Default: `google/gemini-3.1-flash-lite-image`) asynchron ein
+  appetitliches Food-Foto und legt es in **R2** ab; bis das Bild fertig ist,
+  zeigt die Kachel einen deterministischen Gradienten + Food-Emoji.
+  Ohne OpenRouter-Key/R2 degradiert es sauber auf den Emoji-Fallback
+  (Hinweis: Bildgenerierung ist **kostenpflichtig**, kein Free-Tier)
 - **Gerichte zuschalten**: Ein gespeichertes Gericht auf die Liste schalten
   legt seine Zutaten mit Herkunfts-Tag an; Abschalten nimmt die offenen
   Zutaten wieder weg, Gekauftes bleibt
@@ -70,16 +78,19 @@ Worker (src/index.ts) ── statische Assets über ASSETS-Binding (SPA-Fallback
   │     Broadcast: {type:"sync", list} an alle verbundenen Clients
   │     Alarm: erledigte Artikel 24 h nach dem Abhaken entfernen
   │
-  ├─► Durable Object RateLimiterDO (globale Singletons "gemini" und "groq")
+  ├─► Durable Object RateLimiterDO (globale Singletons "gemini", "groq", "openrouter-image")
   │     rollierendes 60-s-Fenster, Limit per ?max= (Gemini 12/min, Groq 27/min)
   │
   ├─► Gemini API: Rezepte (src/recipes.ts) + Tagesvorschläge (src/suggestions.ts)
+  ├─► OpenRouter Images API: Rezept-Bilder (src/recipes.ts, asynchron via ctx.waitUntil)
+  ├─► R2:         Rezept-Bilder unter /media/rezept/:id ausgeliefert
   ├─► Groq API:   Sprach-Dump der Add-Bar (src/parse.ts)
   └─► Resend API: Magic-Link-Mails (src/magic-link.ts, optional)
   ▼
-D1 (SQLite): users, sessions, lists, list_memberships, recipes, recurring_items,
-             user_preferences, push_subscriptions, daily_suggestions, recipe_cache,
-             magic_links
+D1 (SQLite): users, sessions, lists, list_memberships, recipes (inkl. bild_key,
+              bild_status), recurring_items, user_preferences, push_subscriptions,
+              daily_suggestions, recipe_cache, magic_links
+R2:         rezepte/{recipeId}.png (Rezept-Bilder, über /media/rezept/:id)
 ```
 
 Wichtige Design-Entscheidungen:
@@ -114,7 +125,13 @@ Wichtige Design-Entscheidungen:
 npm install
 copy .dev.vars.example .dev.vars   # Windows; macOS/Linux: cp .dev.vars.example .dev.vars
 # Keys in .dev.vars eintragen (Gemini, Groq, optional VAPID und Resend)
-npm run db:migrate:local   # D1-Schema lokal anwenden (.wrangler/state)
+
+# R2-Bucket für Rezept-Bilder anlegen (einmalig)
+npx wrangler r2 bucket create buylist-recipe-images
+
+# D1-Schema lokal anwenden (.wrangler/state)
+npm run db:migrate:local
+
 npm run dev                # http://127.0.0.1:8787
 ```
 
@@ -200,6 +217,31 @@ Der Modellname für die Rezept-/Vorschlags-Generierung ist als Worker-Secret
 `GEMINI_MODEL` überschreibbar (Default: `gemini-3.5-flash-lite`, ein aktueller
 Stable-Modellname). So lassen sich neue Modelle ohne Code-Änderung nachziehen.
 
+### Rezept-Bilder (OpenRouter Images API + R2)
+
+Beim Speichern eines Rezepts generiert die OpenRouter Images API asynchron
+ein Food-Foto und legt es in R2 ab. Ohne `OPENROUTER_API_KEY` oder R2-Bucket
+wird das Bild übersprungen und die Kachel zeigt einen deterministischen
+Gradienten + Emoji.
+
+**Hinweis:** Bildgenerierung ist **kostenpflichtig** (kein Free-Tier). Die
+Kosten variieren pro Modell – das Default-Modell
+`google/gemini-3.1-flash-lite-image` kostet ca. $0,01–0,02 pro Bild.
+
+```bash
+# Einmalig: R2-Bucket anlegen
+npx wrangler r2 bucket create buylist-recipe-images
+
+# Lokal: der Bucket wird von wrangler dev automatisch simuliert
+# Remote: API-Key setzen
+wrangler secret put OPENROUTER_API_KEY
+```
+
+Der Modellname ist per `OPENROUTER_IMAGE_MODEL` überschreibbar
+(Default: `google/gemini-3.1-flash-lite-image`). Die Bild-Generierung hat einen
+eigenen Rate-Limiter (über `RATE_LIMITER_DO.idFromName("openrouter-image")`),
+getrennt vom Text-Generator.
+
 ### Sprach-Dump (Groq)
 
 Die Add-Bar zerlegt Mini-Listen (`Milch 2l, Brot, 6 Eier`) über Groq, nicht
@@ -237,10 +279,10 @@ ausgerollt.
 ## Projektstruktur
 
 ```
-├── wrangler.jsonc              # Assets, D1, DO-Bindings, Cron, DO-Migrationen
-├── migrations/                 # D1-Schema (0001_init … 0010_magic_links)
+├── wrangler.jsonc              # Assets, R2, D1, DO-Bindings, Cron, DO-Migrationen
+├── migrations/                 # D1-Schema (0001_init … 0011_recipe_images)
 ├── src/
-│   ├── index.ts                # Router: /api/* + ASSETS-Fallback, WS-Upgrade, Cron
+│   ├── index.ts                # Router: /api/* + /media/* (Rezept-Bilder), WS-Upgrade, Cron
 │   ├── types.ts                # Env, Datenmodell, WS-Message-Typen
 │   ├── util.ts                 # JSON-Responses, 404-Helfer, Cookie, Body-Limit, normKey
 │   ├── crypto.ts               # PBKDF2, SHA-256, base64url, Zufallstoken
@@ -250,7 +292,7 @@ ausgerollt.
 │   ├── lists.ts                # Listen-CRUD, Join, Invite, Snapshot, Access-Helfer
 │   ├── members.ts              # Mitglieder, Entfernen, Owner-Transfer, Verlassen
 │   ├── preferences.ts          # Essens-Profil + Prompt-Baustein für alle LLM-Pfade
-│   ├── recipes.ts              # Gemini-Aufruf, Rezept-CRUD, Cache, Gerichte zu-/abschalten
+│   ├── recipes.ts              # Gemini-Aufruf, OpenRouter-Images, Rezept-CRUD, Cache, Gerichte zu-/abschalten
 │   ├── suggestions.ts          # Tagesvorschläge (5/Nutzer/Tag) inkl. Cron-Vorlauf
 │   ├── recurring.ts            # Wiederkehrende Artikel + täglicher Cron
 │   ├── parse.ts                # Sprach-Dump der Add-Bar über Groq
@@ -297,9 +339,11 @@ ausgerollt.
 | GET/PUT | `/api/preferences` | Essens-Profil: `{diaet, ziel, allergene[]}` |
 | POST | `/api/list/:id/generate` | Rezept generieren `{gericht}` oder `{zutaten[]}` (Gemini) |
 | POST | `/api/list/:id/parse` | Sprach-Dump zerlegen `{text, vorhandene?}` → `{items}` (Groq) |
-| GET | `/api/list/:id/recipes` | Gespeicherte Rezepte dieser Liste |
-| POST | `/api/list/:id/recipes` | Rezept in der Sammlung speichern (kommt erst beim Zuschalten auf die Liste) |
+| GET | `/api/list/:id/recipes` | Gespeicherte Rezepte dieser Liste (inkl. bildUrl/bildStatus) |
+| POST | `/api/list/:id/recipes` | Rezept speichern; startet asynchrone KI-Bild-Generierung (ctx.waitUntil) |
 | DELETE | `/api/list/:id/recipes/:recipeId` | Rezept löschen |
+| POST | `/api/list/:id/recipes/:recipeId/bild` | Bild-Generierung wiederholen (bei fehler) |
+| GET | `/media/rezept/:id` | Rezept-Bild aus R2 (auth-geprüft, SW-cached, offline-fähig) |
 | GET | `/api/recipes` | Alle Rezepte über alle eigenen Listen |
 | POST | `/api/list/:id/gerichte` | Gerichte zuschalten `{gerichte:[{id, nur?, supermarkt?}]}` |
 | DELETE | `/api/list/:id/gerichte/:gerichtId` | Gericht abschalten (offene Zutaten fliegen von der Liste) |
@@ -316,6 +360,7 @@ ausgerollt.
 - Wochen-Essensplan (baut auf der Gerichte-Sammlung und dem Zuschalten auf)
 - Grobe Ausgaben-Erfassung, Dark Mode
 - Profilbilder via R2, OAuth-Login (z. B. Google)
+- Eigenes Rezept-Foto hochladen (optionales Bildfeld, additiv zum KI-Bild)
 
 Ausführlicher in [`docs/feature-roadmap.md`](./docs/feature-roadmap.md) und
 [`docs/optimierungen-und-features.md`](./docs/optimierungen-und-features.md).

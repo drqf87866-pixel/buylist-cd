@@ -1,4 +1,4 @@
-import { withAuth } from "./session";
+import { getSessionUser, withAuth } from "./session";
 import { checkListAccess } from "./lists";
 import { getPreferences, preferencesPrompt } from "./preferences";
 import { json, listNotFound, missingSecretMessage, readJson, normKey } from "./util";
@@ -10,6 +10,8 @@ import categoriesJson from "../public/data/categories.json";
 const CATEGORY_IDS: string[] = [...categoriesJson.map((c) => c.id), "sonstiges"];
 
 const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+const OPENROUTER_IMAGE_MODEL_DEFAULT = "google/gemini-3.1-flash-lite-image";
+const OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/images";
 const GEMINI_URL_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Obergrenzen gegen missbräuchlich große Bodies bzw. entgleiste LLM-Antworten
@@ -191,6 +193,165 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
     throw new GeminiError(502, "Die Antwort des KI-Dienstes konnte nicht verarbeitet werden.");
   }
   return recipe;
+}
+
+// ---------- Rezept-Bild (OpenRouter Images API, asynchron) ----------
+
+const OPENROUTER_IMAGE_TIMEOUT_MS = 60_000;
+
+/** Kategorie → Food-Emoji-Mapping für den Bild-Prompt. */
+const KATEGORIE_EMOJI: Record<string, string> = {
+  "obst-gemuese": "🥗",
+  "brot-backwaren": "🥖",
+  molkerei: "🧀",
+  "fleisch-fisch": "🥩",
+  trockenware: "🥫",
+  "suesses-snacks": "🍰",
+  getraenke: "🍹",
+  tiefkuehl: "❄️",
+  haushalt: "🧴",
+  tier: "🦴",
+  sonstiges: "🍽️",
+};
+
+/** Dominante Kategorie aus den Zutaten ermitteln. */
+function dominanteKategorie(zutaten: RecipeIngredient[]): string {
+  const counts: Record<string, number> = {};
+  for (const z of zutaten) {
+    const k = z.kategorie ?? "sonstiges";
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  let best = "sonstiges";
+  let bestCount = 0;
+  for (const [k, c] of Object.entries(counts)) {
+    if (c > bestCount) {
+      bestCount = c;
+      best = k;
+    }
+  }
+  return best;
+}
+
+function buildImagePrompt(recipe: Recipe): string {
+  const kategorie = dominanteKategorie(recipe.zutaten);
+  const emoji = KATEGORIE_EMOJI[kategorie] ?? "🍽️";
+  const zutatenText = recipe.zutaten.slice(0, 6).map((z) => z.name).join(", ");
+  return (
+    `Ein professionelles Food-Foto von „${recipe.titel}“ (${emoji}) ` +
+    `auf einem schönen Teller angerichtet, appetitlich und hochwertig beleuchtet. ` +
+    `Hauptzutaten: ${zutatenText}. ` +
+    `Keine Menschen, keine Hände, keine Text-Overlays, kein Wasserzeichen. ` +
+    `Stil: Studio-Food-Fotografie, warme Farben, leichte Schärfentiefe, Draufsicht oder leichter Winkel.`
+  );
+}
+
+interface OpenRouterImageData {
+  b64_json?: string;
+  media_type?: string;
+}
+
+interface OpenRouterImageResponse {
+  data?: OpenRouterImageData[];
+  usage?: { cost?: number };
+}
+
+/**
+ * Ruft ein OpenRouter-Bildmodell auf und liefert base64 + media_type.
+ * Gibt null zurück, wenn der Key fehlt, das Freelimit erschöpft ist
+ * oder der Dienst nicht antwortet – nie ein throw.
+ */
+async function callOpenRouterImage(env: Env, prompt: string): Promise<{ base64: string; mediaType: string } | null> {
+  if (!env.OPENROUTER_API_KEY) return null;
+
+  const model = env.OPENROUTER_IMAGE_MODEL ?? OPENROUTER_IMAGE_MODEL_DEFAULT;
+
+  // Freelimit getrennt vom Text-Generator zählen.
+  const limiter = env.RATE_LIMITER_DO.get(env.RATE_LIMITER_DO.idFromName("openrouter-image"));
+  try {
+    const limitRes = await limiter.fetch("https://rate-limiter/check", { method: "POST" });
+    const limit = (await limitRes.json()) as { ok?: boolean };
+    if (!limitRes.ok || !limit.ok) return null;
+  } catch {
+    return null;
+  }
+
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), OPENROUTER_IMAGE_TIMEOUT_MS);
+  try {
+    const res = await fetch(OPENROUTER_IMAGE_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+        "http-referer": "https://buylist.app",
+        "x-title": "Buylist",
+      },
+      body: JSON.stringify({ model, prompt, aspect_ratio: "4:3" }),
+      signal: abort.signal,
+    });
+    if (!res.ok) {
+      console.error("OpenRouter-Image-Fehler:", res.status, await res.text().catch(() => ""));
+      return null;
+    }
+    const data = (await res.json()) as OpenRouterImageResponse;
+    const entry = data?.data?.[0];
+    if (!entry?.b64_json) return null;
+    if (data.usage?.cost != null) {
+      console.log(`OpenRouter-Image-Kosten: $${data.usage.cost.toFixed(6)} (Modell: ${model})`);
+    }
+    return { base64: entry.b64_json, mediaType: entry.media_type ?? "image/png" };
+  } catch (err) {
+    console.error("OpenRouter-Image-Netzwerkfehler:", err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** bild_key und bild_status in der Datenbank setzen. */
+async function updateBildStatus(
+  db: D1Database,
+  recipeId: string,
+  bildKey: string | null,
+  bildStatus: string
+): Promise<void> {
+  try {
+    await db
+      .prepare("UPDATE recipes SET bild_key = ?, bild_status = ? WHERE id = ?")
+      .bind(bildKey, bildStatus, recipeId)
+      .run();
+  } catch (err) {
+    console.error("bild_status-Update fehlgeschlagen:", err);
+  }
+}
+
+/**
+ * Asynchrone Bild-Generierung, läuft in ctx.waitUntil.
+ * Schlägt fehl (fehlender Key, API-Error, Limit) → bild_status='fehler'.
+ * Rezept bleibt in jedem Fall gespeichert.
+ */
+async function generateRecipeImage(env: Env, recipeId: string, recipe: Recipe): Promise<void> {
+  if (!env.OPENROUTER_API_KEY || !env.RECIPE_IMAGES) {
+    await updateBildStatus(env.DB, recipeId, null, "fehler");
+    return;
+  }
+
+  const prompt = buildImagePrompt(recipe);
+  const result = await callOpenRouterImage(env, prompt);
+  if (!result) {
+    await updateBildStatus(env.DB, recipeId, null, "fehler");
+    return;
+  }
+
+  const key = `rezepte/${recipeId}.png`;
+  try {
+    const binary = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+    await env.RECIPE_IMAGES.put(key, binary, { httpMetadata: { contentType: result.mediaType } });
+    await updateBildStatus(env.DB, recipeId, key, "fertig");
+  } catch (err) {
+    console.error("R2-Upload fehlgeschlagen:", err);
+    await updateBildStatus(env.DB, recipeId, null, "fehler");
+  }
 }
 
 // ---------- Gericht-Cache (global, nur Gericht-Modus) ----------
@@ -485,6 +646,8 @@ interface RecipeRow {
   schritte: string;
   created_by: string;
   created_at: number;
+  bild_key: string | null;
+  bild_status: string | null;
 }
 
 function rowToRecipe(row: RecipeRow): Recipe {
@@ -496,6 +659,8 @@ function rowToRecipe(row: RecipeRow): Recipe {
     zutaten: safeParse(row.zutaten, [] as RecipeIngredient[]),
     schritte: parseSteps(safeParse<unknown>(row.schritte, [])),
     createdAt: row.created_at,
+    ...(row.bild_key ? { bildUrl: `/media/rezept/${row.id}` } : {}),
+    ...(row.bild_status ? { bildStatus: row.bild_status as Recipe["bildStatus"] } : {}),
   };
 }
 
@@ -519,8 +684,9 @@ interface SaveBody {
  * POST /api/list/:id/recipes – speichert ein Rezept in der Gerichte-Sammlung.
  * Auf eine Einkaufsliste kommt es bewusst erst beim Zuschalten
  * (POST /api/list/:id/gerichte), nicht mehr automatisch beim Speichern.
+ * Nach dem Speichern wird asynchron (ctx.waitUntil) ein KI-Bild generiert.
  */
-export async function handleSaveRecipe(request: Request, env: Env, listId: string): Promise<Response> {
+export async function handleSaveRecipe(request: Request, env: Env, ctx: ExecutionContext, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
@@ -530,14 +696,25 @@ export async function handleSaveRecipe(request: Request, env: Env, listId: strin
 
     const id = crypto.randomUUID();
     const now = Date.now();
+    const hatBildKey = env.OPENROUTER_API_KEY && env.RECIPE_IMAGES;
     await env.DB.prepare(
-      `INSERT INTO recipes (id, list_id, titel, zeit, portionen, zutaten, schritte, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO recipes (id, list_id, titel, zeit, portionen, zutaten, schritte, created_by, created_at, bild_key, bild_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
     )
-      .bind(id, listId, recipe.titel, recipe.zeit ?? null, recipe.portionen, JSON.stringify(recipe.zutaten), JSON.stringify(recipe.schritte), user.id, now)
+      .bind(
+        id, listId, recipe.titel, recipe.zeit ?? null, recipe.portionen,
+        JSON.stringify(recipe.zutaten), JSON.stringify(recipe.schritte), user.id, now,
+        hatBildKey ? "pending" : null
+      )
       .run();
 
-    return json({ rezept: { ...recipe, id, createdAt: now } }, 201);
+    const responseRecipe = { ...recipe, id, createdAt: now };
+    if (hatBildKey) {
+      responseRecipe.bildStatus = "pending";
+      ctx.waitUntil(generateRecipeImage(env, id, recipe));
+    }
+
+    return json({ rezept: responseRecipe }, 201);
   });
 }
 
@@ -649,6 +826,7 @@ export async function handleGetAllRecipes(request: Request, env: Env): Promise<R
   return withAuth(request, env.DB, async ({ user }) => {
     const { results } = await env.DB.prepare(
       `SELECT r.id, r.titel, r.zeit, r.portionen, r.zutaten, r.schritte, r.created_by, r.created_at,
+              r.bild_key, r.bild_status,
               r.list_id AS list_id, l.name AS list_name
        FROM recipes r
        JOIN list_memberships m ON m.list_id = r.list_id AND m.user_id = ?
@@ -671,7 +849,7 @@ export async function handleGetRecipes(request: Request, env: Env, listId: strin
     if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const { results } = await env.DB.prepare(
-      `SELECT id, titel, zeit, portionen, zutaten, schritte, created_by, created_at
+      `SELECT id, titel, zeit, portionen, zutaten, schritte, created_by, created_at, bild_key, bild_status
        FROM recipes WHERE list_id = ? ORDER BY created_at DESC`
     )
       .bind(listId)
@@ -686,11 +864,120 @@ export async function handleDeleteRecipe(request: Request, env: Env, listId: str
   return withAuth(request, env.DB, async ({ user }) => {
     if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
+    // R2-Bild-Key vor dem Löschen merken
+    let bildKey: string | null = null;
+    try {
+      const row = await env.DB.prepare("SELECT bild_key FROM recipes WHERE id = ? AND list_id = ?")
+        .bind(recipeId, listId)
+        .first<{ bild_key: string | null }>();
+      bildKey = row?.bild_key ?? null;
+    } catch {
+      // ignorieren
+    }
+
     const result = await env.DB.prepare("DELETE FROM recipes WHERE id = ? AND list_id = ?")
       .bind(recipeId, listId)
       .run();
     if (!result.meta.changes) return json({ error: "Rezept nicht gefunden." }, 404);
 
+    // R2-Objekt asynchron löschen (fehlschlagen ist ok)
+    if (bildKey && env.RECIPE_IMAGES) {
+      env.RECIPE_IMAGES.delete(bildKey).catch(() => {});
+    }
+
     return json({ ok: true });
+  });
+}
+
+/**
+ * GET /media/rezept/:id – liefert das asynchron generierte Rezept-Bild.
+ * Auth und Listen-Zugriff werden hier geprüft (kein /api/-Prefix, daher kein
+ * withAuth). Der SW cached stale-while-revalidate, damit Bilder offline sind.
+ */
+export async function handleGetRecipeImage(request: Request, env: Env, recipeId: string): Promise<Response> {
+  const session = await getSessionUser(env.DB, request);
+  if (!session) return new Response("Nicht eingeloggt.", { status: 401 });
+
+  const row = await env.DB.prepare(
+    "SELECT r.bild_key, r.list_id FROM recipes r WHERE r.id = ?"
+  )
+    .bind(recipeId)
+    .first<{ bild_key: string | null; list_id: string }>();
+  if (!row || !row.bild_key) return new Response("Nicht gefunden.", { status: 404 });
+
+  if (!(await checkListAccess(env, row.list_id, session.user.id))) {
+    return new Response("Nicht gefunden.", { status: 404 });
+  }
+
+  try {
+    const obj = await env.RECIPE_IMAGES.get(row.bild_key);
+    if (!obj) return new Response("Nicht gefunden.", { status: 404 });
+    return new Response(obj.body, {
+      headers: {
+        "content-type": obj.httpMetadata?.contentType ?? "image/png",
+        "cache-control": "private, max-age=31536000, immutable",
+      },
+    });
+  } catch {
+    return new Response("Nicht gefunden.", { status: 404 });
+  }
+}
+
+/**
+ * POST /api/list/:id/recipes/:recipeId/bild – wiederholt die Bild-Generierung
+ * für ein Rezept, dessen vorheriger Versuch fehlgeschlagen ist (bild_status = 'fehler').
+ */
+export async function handleRetryRecipeImage(request: Request, env: Env, listId: string, recipeId: string): Promise<Response> {
+  return withAuth(request, env.DB, async ({ user }) => {
+    if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
+
+    const row = await env.DB.prepare(
+      "SELECT bild_status FROM recipes WHERE id = ? AND list_id = ?"
+    )
+      .bind(recipeId, listId)
+      .first<{ bild_status: string | null }>();
+    if (!row) return json({ error: "Rezept nicht gefunden." }, 404);
+    if (!env.OPENROUTER_API_KEY || !env.RECIPE_IMAGES) {
+      return json({ error: "Bild-Generierung nicht konfiguriert." }, 400);
+    }
+
+    // Auf pending setzen, damit der Client das Skeleton sieht
+    await updateBildStatus(env.DB, recipeId, null, "pending");
+
+    // Rezept laden für den Prompt
+    const recipeRow = await env.DB.prepare(
+      "SELECT titel, zeit, portionen, zutaten, schritte FROM recipes WHERE id = ?"
+    )
+      .bind(recipeId)
+      .first<{ titel: string; zeit: string | null; portionen: number; zutaten: string; schritte: string }>();
+    if (!recipeRow) return json({ error: "Rezept nicht gefunden." }, 404);
+
+    const recipe: Recipe = {
+      titel: recipeRow.titel,
+      zeit: recipeRow.zeit ?? undefined,
+      portionen: recipeRow.portionen,
+      zutaten: safeParse(recipeRow.zutaten, [] as RecipeIngredient[]),
+      schritte: parseSteps(safeParse<unknown>(recipeRow.schritte, [])),
+    };
+
+    // Bild-Generierung feuern und auf Ergebnis warten (synchron für den Client)
+    const prompt = buildImagePrompt(recipe);
+    const result = await callOpenRouterImage(env, prompt);
+    if (!result) {
+      await updateBildStatus(env.DB, recipeId, null, "fehler");
+      return json({ error: "Bild-Generierung fehlgeschlagen. Bitte später erneut versuchen." }, 502);
+    }
+
+    const key = `rezepte/${recipeId}.png`;
+    try {
+      const binary = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+      await env.RECIPE_IMAGES.put(key, binary, { httpMetadata: { contentType: result.mediaType } });
+      await updateBildStatus(env.DB, recipeId, key, "fertig");
+      return json({ ok: true, bildUrl: `/media/rezept/${recipeId}` });
+    } catch (err) {
+      console.error("R2-Upload fehlgeschlagen:", err);
+      await updateBildStatus(env.DB, recipeId, null, "fehler");
+      return json({ error: "Bild-Generierung fehlgeschlagen." }, 502);
+    }
   });
 }

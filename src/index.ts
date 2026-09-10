@@ -11,7 +11,9 @@ import {
   handleDeleteRecipe,
   handleGenerate,
   handleGetAllRecipes,
+  handleGetRecipeImage,
   handleGetRecipes,
+  handleRetryRecipeImage,
   handleSaveRecipe,
   handleZuschalten,
   runRecipeCacheCleanup,
@@ -44,16 +46,20 @@ export default {
     await runRecipeCacheCleanup(env);
   },
 
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
       try {
-        return await routeApi(request, env, url);
+        return await routeApi(request, env, ctx, url);
       } catch (err) {
         console.error("API-Fehler:", err);
         return json({ error: "Interner Serverfehler." }, 500);
       }
+    }
+
+    if (url.pathname.startsWith("/media/")) {
+      return handleMedia(request, env, url);
     }
 
     // Alle Nicht-API-Requests: statische Assets, bei Nicht-Treffer SPA-Fallback
@@ -64,10 +70,12 @@ export default {
 const LIST_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/(snapshot|ws|invite|generate|parse|recipes|items|recurring|members|owner|leave|gerichte)$/;
 const LIST_DELETE_RE = /^\/api\/list\/([A-Za-z0-9-]+)$/;
 const RECIPE_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recipes\/([A-Za-z0-9-]+)$/;
+const RECIPE_BILD_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recipes\/([A-Za-z0-9-]+)\/bild$/;
 const RECURRING_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/recurring\/([A-Za-z0-9-]+)$/;
 const GERICHTE_ROUTE_RE = /^\/api\/list\/([A-Za-z0-9-]+)\/gerichte\/([A-Za-z0-9-]+)$/;
+const MEDIA_REZEPT_RE = /^\/media\/rezept\/([A-Za-z0-9-]+)$/;
 
-async function routeApi(request: Request, env: Env, url: URL): Promise<Response> {
+async function routeApi(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
   const { pathname } = url;
   const method = request.method;
 
@@ -106,7 +114,7 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     if (action === "generate" && method === "POST") return handleGenerate(request, env, listId);
     if (action === "parse" && method === "POST") return handleParseDump(request, env, listId);
     if (action === "recipes" && method === "GET") return handleGetRecipes(request, env, listId);
-    if (action === "recipes" && method === "POST") return handleSaveRecipe(request, env, listId);
+    if (action === "recipes" && method === "POST") return handleSaveRecipe(request, env, ctx, listId);
     if (action === "items" && method === "POST") return handleAddItems(request, env, listId);
     if (action === "gerichte" && method === "POST") return handleZuschalten(request, env, listId);
     if (action === "recurring" && method === "GET") return handleGetRecurring(request, env, listId);
@@ -129,6 +137,12 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     if (method === "DELETE") return handleAbschalten(request, env, listId, gerichtId);
   }
 
+  const recipeBildMatch = pathname.match(RECIPE_BILD_RE);
+  if (recipeBildMatch) {
+    const [, listId, recipeId] = recipeBildMatch;
+    if (method === "POST") return handleRetryRecipeImage(request, env, listId, recipeId);
+  }
+
   const recipeMatch = pathname.match(RECIPE_ROUTE_RE);
   if (recipeMatch) {
     const [, listId, recipeId] = recipeMatch;
@@ -136,6 +150,17 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
   }
 
   return json({ error: "Nicht gefunden." }, 404);
+}
+
+/**
+ * GET /media/rezept/:id – liefert das asynchron generierte Rezept-Bild.
+ * Auth und Listen-Zugriff werden hier geprüft (kein /api/-Prefix, daher kein
+ * withAuth). Der SW cached stale-while-revalidate, damit Bilder offline sind.
+ */
+async function handleMedia(request: Request, env: Env, url: URL): Promise<Response> {
+  const match = url.pathname.match(MEDIA_REZEPT_RE);
+  if (match && request.method === "GET") return handleGetRecipeImage(request, env, match[1]);
+  return new Response("Nicht gefunden.", { status: 404 });
 }
 
 /**
