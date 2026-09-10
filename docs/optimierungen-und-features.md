@@ -133,8 +133,8 @@ Als nächste kleine Schritte bleiben aus den Tabellen oben:
 ## 4. Bereits in der Roadmap geplant (hier nicht erneut ausgeführt)
 
 Siehe [`docs/feature-roadmap.md`](./feature-roadmap.md) für Details. Offen sind dort
-nur noch: grobe Ausgaben-Erfassung (6.1), Magic-Link/OAuth-Login (6.4) und Dark Mode
-(6.5). Umgesetzt und dort in Kapitel 9 dokumentiert: Duplikat-Zusammenführung (4.1),
+nur noch: grobe Ausgaben-Erfassung (6.1), Dark Mode (6.5) und OAuth-Login
+(Magic-Link per Resend ist umgesetzt, siehe `src/magic-link.ts`). Umgesetzt und dort in Kapitel 9 dokumentiert: Duplikat-Zusammenführung (4.1),
 Verlauf/„Zuletzt gekauft“ (4.2), automatisches Aufräumen erledigter Items (4.3),
 Kategorien/Sortierung nach Supermarkt-Layout (5.2), wiederkehrende Artikel (5.3),
 PWA + Web Push (6.2), Mitglieder-Verwaltung (6.3) und der Kochmodus (Kapitel 7).

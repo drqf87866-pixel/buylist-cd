@@ -61,7 +61,7 @@ Falls ja → das Feature muss unsichtbar (Automatik), versteckt (Sheet/Panel) od
 | 3 — Später/Ideen | Grobe Ausgaben-Erfassung | „Was geben wir monatlich aus?“ — grob, kein Budget-Tool | mittel | eigener Screen ab Übersicht | offen |
 | 3 — Später/Ideen | PWA + Web Push | Homescreen-Icon; „Liste geändert“-Stups für Partner | mittel–groß | unsichtbar + ein Toggle | **umgesetzt** |
 | 3 — Später/Ideen | Mitglieder-Verwaltung | Wer ist in der Liste? Jemanden entfernen können | klein–mittel | Bottom-Sheet hinter 👥 | **umgesetzt** |
-| 3 — Später/Ideen | Magic-Link / OAuth-Login | Familien-Onboarding ohne Passwort-Friction | mittel (+ externe Mail) | nur Login-Screen | offen |
+| 3 — Später/Ideen | Magic-Link / OAuth-Login | Familien-Onboarding ohne Passwort-Friction | mittel (+ externe Mail) | nur Login-Screen | **umgesetzt** (Magic Link) |
 | 3 — Später/Ideen | Dark Mode | Abends nicht geblendet werden | klein | unsichtbar/automatisch | offen |
 
 ---
@@ -291,6 +291,14 @@ Die folgenden Vorschläge aus `docs/feature-roadmap.md` sowie dem Analyse-Papier
   kombinierbares Ziel (aktuell „proteinreich“, Migration `0009`), das über
   `preferencesPrompt()` in Rezepte und Tagesvorschläge einfließt.
 
-Noch offen aus der Roadmap: grobe Ausgaben-Erfassung (6.1), Magic-Link/OAuth (6.4),
-Dark Mode (6.5), Aufgabenzuweisung, Meal-Planning (Ausbaustufe: Wochenplan),
-Vorratsverwaltung.
+- **Magic-Link-Login (6.4):** Per Resend (`src/magic-link.ts`, Tabelle
+  `magic_links`). Der Nutzer gibt nur seine E-Mail ein; der Link ist 15 Min
+  gültig, einmal verwendbar und wird nur als SHA-256-Hash gespeichert.
+  Unbekannte E-Mails werden beim ersten Klick automatisch registriert (ohne
+  Passwort, per Sentinel im `password_hash`-Feld). Dritter Tab auf der
+  Login-Seite, `APP_URL`/`RESEND_FROM`/`RESEND_API_KEY` als Secrets; ohne Key
+  melden die Routen klar `missingSecret()`. OAuth bleibt offen.
+
+Noch offen aus der Roadmap: grobe Ausgaben-Erfassung (6.1), Dark Mode (6.5),
+Aufgabenzuweisung, Meal-Planning (Ausbaustufe: Wochenplan), Vorratsverwaltung,
+OAuth-Login.

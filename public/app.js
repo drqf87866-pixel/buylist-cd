@@ -562,7 +562,16 @@
     document.body.classList.toggle("has-addbar", /^\/list\/[A-Za-z0-9-]+$/.test(path));
     updateBottomNav(state.user && NAV_PATHS.includes(path) ? path : null);
 
-    if (path === "/login") return renderAuth("login");
+    if (path === "/login") {
+      // Rückkehr vom Magic-Link-Verify: Grund als Hinweis anzeigen und aus der URL nehmen.
+      const grund = new URLSearchParams(location.search).get("magic");
+      if (grund) {
+        history.replaceState({}, "", "/login");
+        return renderAuth("login", MAGIC_ERRORS[grund] ?? "Der Login-Link konnte nicht verwendet werden.");
+      }
+      return renderAuth("login");
+    }
+    if (path === "/magic") return renderAuth("magic");
     if (path === "/register") return renderAuth("register");
 
     // Geschützte Routen: ohne Session zum Login, danach zurück zur Zielseite
@@ -600,7 +609,91 @@
 
   // ---------- Login / Registrierung ----------
 
+  const MAGIC_ERRORS = {
+    ungueltig: "Dieser Login-Link ist ungültig.",
+    verbraucht: "Dieser Login-Link wurde bereits verwendet.",
+    abgelaufen: "Dieser Login-Link ist abgelaufen.",
+  };
+
+  function authTabs(active) {
+    return el(
+      "nav",
+      { class: "tabs" },
+      el("a", { "data-link": "", href: "/login", class: active === "login" ? "active" : "", text: "Login" }),
+      el("a", { "data-link": "", href: "/magic", class: active === "magic" ? "active" : "", text: "Magic Link" }),
+      el("a", { "data-link": "", href: "/register", class: active === "register" ? "active" : "", text: "Registrieren" })
+    );
+  }
+
+  function authShell(active, ...children) {
+    $app.replaceChildren(
+      el(
+        "div",
+        { class: "auth-wrap" },
+        el("h1", { class: "logo", text: "🛒 Buylist" }),
+        el("p", { class: "subtitle", text: "Gemeinsame Einkaufslisten in Echtzeit." }),
+        authTabs(active),
+        ...children
+      )
+    );
+  }
+
+  /** Login-Seite mit E-Mail-Feld, die einen Magic Link statt eines Passworts nutzt. */
+  function renderMagicAuth() {
+    const email = el("input", {
+      class: "input",
+      type: "email",
+      name: "email",
+      placeholder: "E-Mail",
+      autocomplete: "email",
+      required: true,
+    });
+    const errorBox = el("p", { class: "error", hidden: true });
+    const submit = el("button", { class: "btn primary", type: "submit", text: "Link per E-Mail senden" });
+
+    const form = el(
+      "form",
+      {
+        class: "card form",
+        onsubmit: async (event) => {
+          event.preventDefault();
+          errorBox.hidden = true;
+          submit.disabled = true;
+          try {
+            await api("/api/auth/magic/request", { body: { email: email.value } });
+            renderMagicSent(email.value.trim());
+          } catch (err) {
+            errorBox.textContent = err.message;
+            errorBox.hidden = false;
+          } finally {
+            submit.disabled = false;
+          }
+        },
+      },
+      email,
+      el("p", { class: "muted prefs-hint", text: "Wir schicken dir einen Link, mit dem du dich ohne Passwort anmeldest." }),
+      errorBox,
+      submit
+    );
+
+    authShell("magic", form);
+  }
+
+  /** Bestätigung nach dem Versand: „Prüf dein Postfach.“ */
+  function renderMagicSent(email) {
+    const card = el(
+      "div",
+      { class: "card form" },
+      el("p", { class: "magic-sent-icon", "aria-hidden": "true", text: "📬" }),
+      el("p", { class: "magic-sent-text", text: `Wir haben einen Login-Link an ${email} geschickt.` }),
+      el("p", { class: "muted prefs-hint", text: "Der Link ist 15 Minuten gültig. Schau auch im Spam-Ordner nach." }),
+      el("a", { "data-link": "", href: "/login", class: "btn ghost", text: "Zurück zum Login" })
+    );
+    authShell("magic", card);
+  }
+
   function renderAuth(mode, note) {
+    if (mode === "magic") return renderMagicAuth();
     const isRegister = mode === "register";
 
     const email = el("input", {
@@ -674,12 +767,7 @@
         { class: "auth-wrap" },
         el("h1", { class: "logo", text: "🛒 Buylist" }),
         el("p", { class: "subtitle", text: note ?? "Gemeinsame Einkaufslisten in Echtzeit." }),
-        el(
-          "nav",
-          { class: "tabs" },
-          el("a", { "data-link": "", href: "/login", class: !isRegister ? "active" : "", text: "Login" }),
-          el("a", { "data-link": "", href: "/register", class: isRegister ? "active" : "", text: "Registrieren" })
-        ),
+        authTabs(isRegister ? "register" : "login"),
         form
       )
     );

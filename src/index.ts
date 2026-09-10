@@ -1,4 +1,5 @@
 import { handleLogin, handleLogout, handleMe, handleRegister } from "./auth";
+import { handleMagicRequest, handleMagicVerify } from "./magic-link";
 import { handleCreateList, handleDeleteList, handleGetLists, handleInvite, handleJoin, handleSnapshot, isMember } from "./lists";
 import { handleLeaveList, handleGetMembers, handleRemoveMember, handleTransferOwner } from "./members";
 import { handleGetPreferences, handleSavePreferences } from "./preferences";
@@ -74,6 +75,8 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
   if (pathname === "/api/auth/login" && method === "POST") return handleLogin(request, env);
   if (pathname === "/api/auth/logout" && method === "POST") return handleLogout(request, env);
   if (pathname === "/api/auth/me" && method === "GET") return handleMe(request, env);
+  if (pathname === "/api/auth/magic/request" && method === "POST") return handleMagicRequest(request, env);
+  if (pathname === "/api/auth/magic/verify" && method === "GET") return handleMagicVerify(request, env);
   if (pathname === "/api/preferences" && method === "GET") return handleGetPreferences(request, env);
   if (pathname === "/api/preferences" && method === "PUT") return handleSavePreferences(request, env);
   if (pathname === "/api/push/subscribe" && method === "POST") return handleSubscribe(request, env);

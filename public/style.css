@@ -404,6 +404,23 @@ body.has-addbar .container {
   box-shadow: 0 1px 3px rgba(35, 40, 31, 0.12);
 }
 
+.magic-sent-icon {
+  text-align: center;
+  font-size: 2.4rem;
+  margin: 4px 0 0;
+}
+
+.magic-sent-text {
+  text-align: center;
+  margin: 0;
+  font-weight: 600;
+}
+
+.card.form a.btn {
+  text-align: center;
+  text-decoration: none;
+}
+
 /* ---------- Listen-Übersicht ---------- */
 
 .greeting {

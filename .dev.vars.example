@@ -16,3 +16,10 @@ GROQ_API_KEY=
 # VAPID_PUBLIC_KEY=
 # VAPID_PRIVATE_KEY=
 # VAPID_SUBJECT=mailto:du@example.com
+
+# --- Magic-Link-Login per E-Mail (Resend, optional) ---
+# Ohne RESEND_API_KEY ist der Magic-Link-Tab deaktiviert und meldet das klar.
+# RESEND_FROM muss eine bei Resend verifizierte Domain nutzen.
+# RESEND_API_KEY=
+# RESEND_FROM="Buylist <noreply@deinedomain.de>"
+# APP_URL=https://buylist.deinedomain.de   # optional; sonst Origin des Requests

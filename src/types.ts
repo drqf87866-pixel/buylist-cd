@@ -20,6 +20,12 @@ export interface Env {
   VAPID_PRIVATE_KEY?: string;
   /** Web-Push-VAPID: mailto-Adresse im JWT-Subject. */
   VAPID_SUBJECT?: string;
+  /** Resend-API-Key für den Magic-Link-Versand; ohne Key ist Magic-Link deaktiviert. */
+  RESEND_API_KEY?: string;
+  /** Absender des Magic-Link-Mails, z. B. "Buylist <noreply@deinedomain.de>" (Domain muss bei Resend verifiziert sein). */
+  RESEND_FROM?: string;
+  /** Basis-URL für den Magic-Link; fehlt sie, wird der Origin des Requests genutzt. */
+  APP_URL?: string;
 }
 
 export interface User {

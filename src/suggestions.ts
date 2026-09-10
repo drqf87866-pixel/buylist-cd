@@ -1,7 +1,7 @@
 import { withAuth } from "./session";
 import { callGeminiJson, GeminiError } from "./recipes";
 import { getPreferences, preferencesPrompt } from "./preferences";
-import { json } from "./util";
+import { json, normKey } from "./util";
 import type { DishSuggestion, Env } from "./types";
 
 /** Anzahl der Vorschläge pro Tag – ein einziger Gemini-Call liefert sie alle. */
@@ -56,17 +56,27 @@ function sanitizeVorschlaege(raw: unknown): DishSuggestion[] {
 const SYSTEM_ANWEISUNG = `Du bist ein Kochassistent für eine Einkaufslisten-App und schlägst täglich neue Gerichte vor.
 Regeln:
 - Antworte auf Deutsch.
-- Schlage genau ${ANZAHL_VORSCHLAEGE} völlig unterschiedliche Gerichte vor: verschiedene Küchen, unterschiedliche Zubereitungszeiten und Schwierigkeitsgrade – überraschend, aber alltagstauglich mit handelsüblichen Zutaten.
+- Schlage genau ${ANZAHL_VORSCHLAEGE} Gerichte vor – überraschend, aber alltagstauglich mit handelsüblichen Zutaten.
+- Vielfalt ist Pflicht: mindestens 3 verschiedene Küchen/Regionen (z. B. mediterran, asiatisch, orientalisch, deutsch, mexikanisch), höchstens 1 Gericht pro Protein-Hauptquelle (Huhn, Rind, Schwein, Fisch, vegetarisch mit Hülsenfrüchten usw.) und höchstens 1 Gericht pro Sättigungsbasis (Nudeln, Reis, Kartoffeln, Brot).
+- Mische die Zubereitungsarten (Pfanne, Ofen, Topf, roh/Salat) und die Zeiten (mindestens 1 Gericht unter 20 Minuten).
 - "beschreibung" ist EIN einladender Satz (max. ca. 15 Wörter), der das Gericht verkauft.
 - "zeit" ist die ungefähre Zubereitungszeit (z. B. "ca. 30 Minuten").
-- Steht eine Ausschlussliste, darf KEIN Gericht davon enthalten sein (auch nicht in Abwandlungen).
-- Beachte die Vorgaben des Nutzers (Diätform/Ziel/Allergene) zwingend.`;
+- Steht eine Ausschlussliste, darf KEIN Gericht davon enthalten sein (auch nicht in Abwandlungen wie "Spaghetti Napoli" statt "Pasta mit Tomatensauce").
+- Steht eine Variationsliste (heute bereits gezeigt), weiche bewusst deutlich davon ab: keine Wiederholungen und keine bloßen Varianten derselben Gerichte – wähle andere Küchen, Proteinquellen und Zubereitungsarten.
+- Die Vorgaben des Nutzers (Diätform/Ziel/Allergene) haben immer Vorrang vor den Vielfaltsregeln und sind zwingend.`;
 
 /**
  * Generiert die Tagesvorschläge in EINEM Gemini-Request (Array-Response-Schema)
  * und berücksichtigt Präferenzen sowie die Vorschläge der letzten Tage.
+ * `weicheAusschluesse` (nur beim Refresh: die gerade angezeigten Gerichte)
+ * wird bewusst nur als Variationsliste formuliert – kein hartes Verbot, damit
+ * auch enge Essens-Profile noch erfüllbar bleiben.
  */
-async function generateSuggestions(env: Env, userId: string): Promise<DishSuggestion[]> {
+async function generateSuggestions(
+  env: Env,
+  userId: string,
+  weicheAusschluesse: string[] = []
+): Promise<DishSuggestion[]> {
   const heute = heutigesDatum();
   const { results } = await env.DB.prepare(
     `SELECT vorschlaege FROM daily_suggestions WHERE user_id = ? AND datum < ? ORDER BY datum DESC LIMIT ${EXCLUDE_TAGE}`
@@ -76,7 +86,10 @@ async function generateSuggestions(env: Env, userId: string): Promise<DishSugges
 
   const excluiert = new Set<string>();
   for (const row of results ?? []) {
-    for (const v of safeParseVorschlaege(row.vorschlaege)) excluiert.add(v.titel.toLowerCase());
+    for (const v of safeParseVorschlaege(row.vorschlaege)) {
+      const titel = v.titel?.trim();
+      if (titel) excluiert.add(normKey(titel));
+    }
   }
 
   const praeferenzen = preferencesPrompt(await getPreferences(env.DB, userId));
@@ -84,11 +97,16 @@ async function generateSuggestions(env: Env, userId: string): Promise<DishSugges
   if (excluiert.size) {
     parts.push(`Ausschlussliste – diese Gerichte wurden in den letzten Tagen bereits vorgeschlagen: ${[...excluiert].join("; ")}`);
   }
+  const variation = [...new Set(weicheAusschluesse.map((t) => t.trim()).filter(Boolean))];
+  if (variation.length) {
+    parts.push(`Variationsliste – heute bereits gezeigt, weiche bewusst deutlich davon ab: ${variation.join("; ")}`);
+  }
   if (praeferenzen) parts.push(praeferenzen);
 
   const raw = await callGeminiJson(env, {
     systemInstruction: SYSTEM_ANWEISUNG,
     userContent: parts.join("\n"),
+    temperature: 1,
     responseSchema: {
       type: "ARRAY",
       minItems: ANZAHL_VORSCHLAEGE,
@@ -184,7 +202,12 @@ export async function handleRefreshSuggestions(request: Request, env: Env): Prom
     if (limitBlock) return limitBlock;
 
     try {
-      const vorschlaege = await generateSuggestions(env, user.id);
+      // Die gerade angezeigten Gerichte nur als weiche Variationsliste
+      // mitgeben (kein hartes Verbot) – so würfelt der Refresh bewusst anders,
+      // bleibt aber auch bei engen Essens-Profilen erfüllbar.
+      const bisherige = await leseHeute(env, user.id);
+      const variation = (bisherige ?? []).map((v) => v.titel).filter((t) => typeof t === "string" && t.trim());
+      const vorschlaege = await generateSuggestions(env, user.id, variation);
       await speichereHeute(env, user.id, vorschlaege);
       return json({ datum: heutigesDatum(), vorschlaege });
     } catch (err) {

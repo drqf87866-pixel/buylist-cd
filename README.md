@@ -9,14 +9,16 @@ externen Dienste.
 
 1. **Registrierung & Login** (E-Mail + Passwort), Session-Cookie, geschützte
    Routen (ohne Session zeigt die SPA die Login-Ansicht)
-2. **Listen verwalten**: Übersicht aller eigenen Listen, anlegen per Klick
-3. **Mitglieder einladen** per Invite-Link (`/join/<token>`)
-4. **Artikel hinzufügen / abhaken / löschen** mit Echtzeit-Sync über
+2. **Magic-Link-Login** per E-Mail über Resend (optional, siehe Setup) – ohne
+   Passwort, unbekannte E-Mails werden beim ersten Klick automatisch angelegt
+3. **Listen verwalten**: Übersicht aller eigenen Listen, anlegen per Klick
+4. **Mitglieder einladen** per Invite-Link (`/join/<token>`)
+5. **Artikel hinzufügen / abhaken / löschen** mit Echtzeit-Sync über
    WebSocket (Durable Object als Broadcast-Hub, nur Mitglieder dürfen sich
    verbinden)
-5. **State bleibt erhalten**: Das Durable Object persistiert die Liste in
+6. **State bleibt erhalten**: Das Durable Object persistiert die Liste in
    DO-Storage, auch wenn alle Clients offline sind
-6. **Mobile-first UI**: große Tap-Ziele, sticky Add-Bar, Live-Statusanzeige
+7. **Mobile-first UI**: große Tap-Ziele, sticky Add-Bar, Live-Statusanzeige
 
 ## Weitere Features
 
@@ -72,10 +74,12 @@ Worker (src/index.ts) ── statische Assets über ASSETS-Binding (SPA-Fallback
   │     rollierendes 60-s-Fenster, Limit per ?max= (Gemini 12/min, Groq 27/min)
   │
   ├─► Gemini API: Rezepte (src/recipes.ts) + Tagesvorschläge (src/suggestions.ts)
-  └─► Groq API:   Sprach-Dump der Add-Bar (src/parse.ts)
+  ├─► Groq API:   Sprach-Dump der Add-Bar (src/parse.ts)
+  └─► Resend API: Magic-Link-Mails (src/magic-link.ts, optional)
   ▼
 D1 (SQLite): users, sessions, lists, list_memberships, recipes, recurring_items,
-             user_preferences, push_subscriptions, daily_suggestions, recipe_cache
+             user_preferences, push_subscriptions, daily_suggestions, recipe_cache,
+             magic_links
 ```
 
 Wichtige Design-Entscheidungen:
@@ -109,7 +113,7 @@ Wichtige Design-Entscheidungen:
 ```bash
 npm install
 copy .dev.vars.example .dev.vars   # Windows; macOS/Linux: cp .dev.vars.example .dev.vars
-# Keys in .dev.vars eintragen (Gemini, Groq, optional VAPID)
+# Keys in .dev.vars eintragen (Gemini, Groq, optional VAPID und Resend)
 npm run db:migrate:local   # D1-Schema lokal anwenden (.wrangler/state)
 npm run dev                # http://127.0.0.1:8787
 ```
@@ -165,6 +169,31 @@ Die PWA-Icons (`public/icon-192.png`, `public/icon-512.png`) lassen sich per
 `node scripts/make-icons.mjs` neu erzeugen (erzeugt auch die
 maskable-Varianten `icon-maskable-*.png`).
 
+## Magic-Link-Login (optional)
+
+Anmeldung ohne Passwort: Der Nutzer gibt seine E-Mail ein, bekommt per Resend
+einen Link und ist nach dem Klick eingeloggt. Unbekannte E-Mails werden dabei
+automatisch registriert. Ohne `RESEND_API_KEY` melden die Magic-Link-Routen
+klar, dass das Secret fehlt (kein stiller Fehler).
+
+```bash
+wrangler secret put RESEND_API_KEY   # API-Key aus dem Resend-Dashboard
+wrangler secret put RESEND_FROM      # z. B. "Buylist <noreply@deinedomain.de>"
+wrangler secret put APP_URL          # optional, z. B. https://buylist.deinedomain.de
+
+# Lokal: dieselben Keys in .dev.vars
+```
+
+`RESEND_FROM` muss auf einer bei Resend **verifizierten Domain** liegen.
+`APP_URL` bestimmt die Basis des Links; fehlt sie, wird der Origin des
+jeweiligen Requests verwendet (lokal also `http://127.0.0.1:8787`).
+
+Ablauf: `POST /api/auth/magic/request` legt einen Token an (nur als SHA-256-Hash
+in `magic_links`, 15 Min gültig, Einmal-Verwendung) und verschickt den Link.
+Der Klick auf `/api/auth/magic/verify?token=…` prüft und entwertet den Token,
+setzt das `bl_session`-Cookie und leitet per 302 in die App. Pro E-Mail sind
+höchstens 3 Anfragen je 5 Minuten erlaubt.
+
 ### Gemini-Modell
 
 Der Modellname für die Rezept-/Vorschlags-Generierung ist als Worker-Secret
@@ -209,7 +238,7 @@ ausgerollt.
 
 ```
 ├── wrangler.jsonc              # Assets, D1, DO-Bindings, Cron, DO-Migrationen
-├── migrations/                 # D1-Schema (0001_init … 0009_preferences_ziel)
+├── migrations/                 # D1-Schema (0001_init … 0010_magic_links)
 ├── src/
 │   ├── index.ts                # Router: /api/* + ASSETS-Fallback, WS-Upgrade, Cron
 │   ├── types.ts                # Env, Datenmodell, WS-Message-Typen
@@ -217,6 +246,7 @@ ausgerollt.
 │   ├── crypto.ts               # PBKDF2, SHA-256, base64url, Zufallstoken
 │   ├── session.ts              # Sessions, sliding renewal, withAuth
 │   ├── auth.ts                 # register / login / logout / me
+│   ├── magic-link.ts           # Magic-Link-Anfrage/-Verify über Resend
 │   ├── lists.ts                # Listen-CRUD, Join, Invite, Snapshot, Access-Helfer
 │   ├── members.ts              # Mitglieder, Entfernen, Owner-Transfer, Verlassen
 │   ├── preferences.ts          # Essens-Profil + Prompt-Baustein für alle LLM-Pfade
@@ -251,6 +281,8 @@ ausgerollt.
 | POST | `/api/auth/login` | `{email, password}` → Session-Cookie |
 | POST | `/api/auth/logout` | Session löschen, Cookie entfernen |
 | GET | `/api/auth/me` | Aktueller User (Session-Check) |
+| POST | `/api/auth/magic/request` | `{email}` → Magic-Link-Mail senden (Resend) |
+| GET | `/api/auth/magic/verify?token=` | Token einlösen → Session-Cookie + Redirect ins App |
 | GET/POST | `/api/lists` | Eigene Listen / neue Liste anlegen |
 | DELETE | `/api/list/:id` | Liste löschen (nur Owner) |
 | POST | `/api/join` | `{token}` aus Invite-Link → Liste beitreten |
@@ -281,9 +313,6 @@ ausgerollt.
 
 ## Später (nice-to-have)
 
-- Magic-Link-Login per E-Mail (z. B. über Resend; braucht Account + API-Key –
-  deshalb bewusst nicht im MVP, das reine Cloudflare-Deployment bleibt so
-  abhängigkeitsfrei)
 - Wochen-Essensplan (baut auf der Gerichte-Sammlung und dem Zuschalten auf)
 - Grobe Ausgaben-Erfassung, Dark Mode
 - Profilbilder via R2, OAuth-Login (z. B. Google)

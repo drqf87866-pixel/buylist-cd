@@ -360,6 +360,26 @@ assert(
   `VAPID-Key-Route antwortet (configured: ${vapid.data?.configured})`
 );
 
+// Magic Link: Route antwortet ohne Key mit klarer Meldung (500) und mit
+// ungültiger E-Mail mit 400 – beides ohne echten Mailversand.
+const magicRequest = await api(null, "/api/auth/magic/request", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ email: "keine-mail" }),
+});
+assert(
+  [400, 500].includes(magicRequest.status),
+  `POST /api/auth/magic/request: ungültige E-Mail/fehlender Key abgefangen (${magicRequest.status})`
+);
+
+// Verify mit unbekanntem Token leitet auf die Login-Seite mit Fehlergrund um.
+const magicVerify = await fetch(`${BASE}/api/auth/magic/verify?token=unbekannt`, { redirect: "manual" });
+const verifyLocation = magicVerify.headers.get("location") ?? "";
+assert(
+  magicVerify.status === 302 && verifyLocation.includes("/login") && verifyLocation.includes("magic="),
+  `GET /api/auth/magic/verify mit unbekanntem Token -> 302 /login?magic=… (${magicVerify.status})`
+);
+
 // Owner-Übertragung: B wird Owner, A Member
 const transfer = await api(cookieA, `/api/list/${listId}/owner`, {
   method: "POST",

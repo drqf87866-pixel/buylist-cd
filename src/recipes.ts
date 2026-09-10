@@ -71,6 +71,12 @@ interface GeminiCallOptions {
   responseSchema: unknown;
   /** Für Fehlermeldungen, z. B. „Rezept-Erstellung“ oder „Vorschlag-Generierung“. */
   kontext: string;
+  /**
+   * Optionaler Sampling-Parameter (nur setzen, wo Abwechslung gewünscht ist,
+   * z. B. Tagesvorschläge). Fehlt er, gilt der Gemini-Default – der
+   * Rezept-Pfad bleibt damit bewusst deterministisch.
+   */
+  temperature?: number;
 }
 
 /**
@@ -95,6 +101,7 @@ export async function callGeminiJson(env: Env, options: GeminiCallOptions): Prom
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: options.responseSchema,
+      ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     },
   };
 
