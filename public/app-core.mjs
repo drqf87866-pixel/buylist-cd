@@ -227,6 +227,27 @@ function peelMenge(part) {
   return { name: part };
 }
 
+/**
+ * Kurzform eines Gerichttitel für automatisch angelegte Einkaufslisten:
+ * „Spaghetti Carbonara mit extra Parmesan – klassisch“ → „Spaghetti Carbonara“.
+ * Schneidet Anhängsel ab „mit …“, ab Gedankenstrich/Bindestrich mit Leerzeichen
+ * und trailing Klammern ab, kürzt an der Wortgrenze auf ~40 Zeichen.
+ */
+export function rezeptListenKurzform(titel) {
+  const original = String(titel ?? "").trim().replace(/\s+/g, " ");
+  if (!original) return "Neues Gericht";
+  let t = original.split(/\s+[–—-]\s+/)[0].trim();
+  t = t.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  t = t.replace(/\s+mit\s+.+$/i, "").trim();
+  if (!t) t = original;
+  const MAX = 40;
+  if (t.length <= MAX) return t;
+  const slice = t.slice(0, MAX);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace >= 15) return slice.slice(0, lastSpace).trim();
+  return slice.trim();
+}
+
 /** Food-Emoji pro Kategorie-Id für den Cover-Fallback. */
 const COVER_EMOJI = {
   "obst-gemuese": "🥗",
@@ -300,5 +321,6 @@ if (typeof window !== "undefined") {
     composeMenge,
     formatItemMenge,
     coverFor,
+    rezeptListenKurzform,
   };
 }

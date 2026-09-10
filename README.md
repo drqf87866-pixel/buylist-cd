@@ -49,7 +49,10 @@ externen Dienste.
   legt seine Zutaten mit Herkunfts-Tag an; Abschalten nimmt die offenen
   Zutaten wieder weg, Gekauftes bleibt
 - **Tagesvorschläge**: 5 KI-Gerichte pro Nutzer und Tag, nachts vorgeneriert
-  und jederzeit neu würfelbar
+  und jederzeit neu würfelbar. „Rezept erstellen“ bei einer Idee legt
+  automatisch eine neue Liste mit dem Gerichtnamen an und zeigt Ladezustand
+  und Vorschau (mit Portionenwahl) im selben Popup – ohne Umweg über den
+  Assistenten; Verwerfen räumt die angelegte Liste wieder weg
 - **Essens-Profil**: Diätform, Ernährungsziel und Allergene pro Nutzer,
   fließen in jeden Gemini-Prompt ein
 - **Mitgliederverwaltung**: Mitgliederliste, Entfernen, Owner-Übertragung,

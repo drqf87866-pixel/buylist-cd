@@ -19,6 +19,7 @@ import {
   parseMengeParts,
   composeMenge,
   formatItemMenge,
+  rezeptListenKurzform,
 } from "../public/app-core.mjs";
 
 const categories = JSON.parse(
@@ -179,5 +180,28 @@ test("splitDumpLocal: Dezimal-Komma bleibt im Artikel, Duplikate fallen weg", ()
   assert.deepEqual(splitDumpLocal("Bio Milch 3,5%"), [{ name: "Bio Milch 3,5%" }]);
   assert.deepEqual(splitDumpLocal("Milch, milch"), [{ name: "Milch" }]);
   assert.deepEqual(splitDumpLocal(""), []);
+});
+
+// ---------- rezeptListenKurzform ----------
+
+test("rezeptListenKurzform: schneidet Anhängsel ab und kürzt an der Wortgrenze", () => {
+  assert.equal(rezeptListenKurzform("Spaghetti Carbonara"), "Spaghetti Carbonara");
+  assert.equal(
+    rezeptListenKurzform("Spaghetti Carbonara mit extra Parmesan"),
+    "Spaghetti Carbonara"
+  );
+  assert.equal(
+    rezeptListenKurzform("Linsensuppe – klassisch wie bei Oma"),
+    "Linsensuppe"
+  );
+  assert.equal(rezeptListenKurzform("Curry (vegan)"), "Curry");
+  assert.equal(rezeptListenKurzform(""), "Neues Gericht");
+  assert.equal(rezeptListenKurzform("   "), "Neues Gericht");
+});
+
+test("rezeptListenKurzform: lange Titel enden an der Wortgrenze bei ~40 Zeichen", () => {
+  const kurz = rezeptListenKurzform("Überbackener Blumenkohlauflauf mit Kartoffeln und Käsekruste");
+  assert.ok(kurz.length <= 40);
+  assert.equal(kurz, "Überbackener Blumenkohlauflauf");
 });
 

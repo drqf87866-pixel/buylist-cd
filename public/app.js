@@ -23,6 +23,7 @@
     parseMengeParts,
     formatItemMenge,
     coverFor,
+    rezeptListenKurzform,
   } = window.BC;
 
   function mengeEl(menge, cls = "recipe-menge") {
@@ -382,6 +383,15 @@
   // Tippt man neben eine offene Swipe-Zelle, klappt sie zu.
   document.addEventListener("click", (event) => {
     if (closeActiveSwipe && !event.target.closest?.(".swipe-cell")) closeActiveSwipe();
+  });
+
+  // Chrome-Android zeigt beim Langdruck auf leere Flächen das native
+  // Kontextmenü. In der installierten PWA unerwünscht – auf Textfeldern
+  // (Einfügen/Auswählen) bleibt es aber erhalten.
+  document.addEventListener("contextmenu", (event) => {
+    const t = event.target;
+    if (t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea"))) return;
+    event.preventDefault();
   });
 
   window.addEventListener("popstate", () => render());
@@ -1123,20 +1133,7 @@
 
     const assistantEl = el("div", { class: "assistant" }, form, previewEl);
 
-    /**
-     * Einstiegspunkt der Tagesvorschläge: übernimmt einen Vorschlagstitel,
-     * wechselt in den Gericht-Modus und startet die Generierung sofort –
-     * Preview, Speichern und Zuschalten laufen über den normalen Formular-Flow.
-     */
-    function vorschlagUebernehmen(titel) {
-      setModus("gericht");
-      gerichtInput.value = titel;
-      assistantError.hidden = true;
-      previewEl.replaceChildren();
-      form.requestSubmit();
-    }
-
-    return { el: assistantEl, vorschlagUebernehmen };
+    return { el: assistantEl };
   }
 
   /**
@@ -1266,8 +1263,6 @@
 
   // ---------- Rezept-Kacheln, Detail-Sheet & FAB-Assistent ----------
 
-  let assistantFabPendingTitel = null;
-
   function removeFab() {
     const existing = document.querySelector(".fab");
     if (existing) existing.remove();
@@ -1391,14 +1386,6 @@
           },
         });
 
-        // Wenn ein ausstehender Vorschlag vom Ideen-Tab wartet, direkt übernehmen
-        if (assistantFabPendingTitel) {
-          const titel = assistantFabPendingTitel;
-          assistantFabPendingTitel = null;
-          // Warten, bis das Sheet gerendert ist, dann den Vorschlag übernehmen
-          requestAnimationFrame(() => assistant.vorschlagUebernehmen(titel));
-        }
-
         sheet.append(
           el("div", { class: "sheet-handle", "aria-hidden": "true" }),
           assistant.el
@@ -1511,8 +1498,6 @@
 
   function renderRecipes() {
     const startView = localStorage.getItem("bl-rezepte-view") === "rezepte" ? "rezepte" : "ideen";
-    let assistantApi = null;
-    let anstehenderVorschlag = null; // Titel aus der Ideen-Ansicht, wartet auf den fertigen Assistenten
 
     const tabIdeen = el("button", { class: "assistant-tab", type: "button", "data-view": "ideen", text: "✨ Ideen" });
     const tabRezepte = el("button", { class: "assistant-tab", type: "button", "data-view": "rezepte", text: "📖 Meine Rezepte" });
@@ -1525,12 +1510,7 @@
       tabRezepte.classList.toggle("active", next === "rezepte");
       removeFab();
       if (next === "ideen") {
-        body.replaceChildren(
-          createSuggestionsView((titel) => {
-            anstehenderVorschlag = titel;
-            setView("rezepte");
-          })
-        );
+        body.replaceChildren(createSuggestionsView());
       } else {
         body.replaceChildren(buildMeineRezepte());
       }
@@ -1567,7 +1547,6 @@
       api("/api/lists")
         .then((data) => {
           if (!data.lists.length) {
-            anstehenderVorschlag = null;
             return;
           }
 
@@ -1582,19 +1561,8 @@
 
           fab = createAssistantFab(data.lists, loadOpenItems, () => loadRecipes());
           document.body.append(fab);
-
-          // Ein im Ideen-Tab angetippter Vorschlag startet jetzt die Generierung.
-          if (anstehenderVorschlag) {
-            const titel = anstehenderVorschlag;
-            anstehenderVorschlag = null;
-            // FAB-Klick simulieren, dann Vorschlag übernehmen
-            fab.click();
-            // Wir merken uns den Titel, den der FAB-Sheet-Assistent übernehmen soll
-            assistantFabPendingTitel = titel;
-          }
         })
         .catch((err) => {
-          anstehenderVorschlag = null;
           if (err.status === 401) {
             state.user = null;
             navigate("/login", { replace: true });
@@ -1616,14 +1584,270 @@
     setView(startView);
   }
 
+  // ---------- Rezept aus einer Idee erstellen (eigenes Popup, ohne Assistent) ----------
+
+  /**
+   * Generierungs-Popup für eine Tagesidee: legt automatisch eine neue Liste mit
+   * der Kurzform des Gerichtnamens an, zeigt währenddessen einen Ladezustand
+   * und danach die Vorschau mit Speichern/Verwerfen – alles im selben Sheet.
+   * Der manuelle Koch-Assistent (FAB) bleibt davon unberührt.
+   */
+  function openRezeptGenerierenPopup(vorschlagTitel) {
+    const vollerTitel = String(vorschlagTitel ?? "").trim().slice(0, 120);
+    if (!vollerTitel) return;
+    const listenName = rezeptListenKurzform(vollerTitel);
+
+    let portionen = 2;
+    let newListId = null;
+    let gespeichert = false;
+    let erledigt = false; // Sheet schon zu → späte Antworten ignorieren
+
+    async function raeumeListeWeg() {
+      if (!newListId || gespeichert) return;
+      const id = newListId;
+      newListId = null;
+      try {
+        await api(`/api/list/${id}`, { method: "DELETE" });
+      } catch {
+        // Best-effort: eine verwaiste leere Liste ist ärgerlich, aber kein Fehler für den Nutzer
+      }
+    }
+
+    openSheet(
+      (sheet, close) => {
+        const portionenVal = el("span", { class: "cook-portions-val", text: String(portionen) });
+        const minusBtn = el("button", {
+          class: "cook-portion-btn",
+          type: "button",
+          "aria-label": "Eine Portion weniger",
+          text: "−",
+        });
+        const plusBtn = el("button", {
+          class: "cook-portion-btn",
+          type: "button",
+          "aria-label": "Eine Portion mehr",
+          text: "+",
+        });
+        const bodyWrap = el("div", {});
+
+        function paintStepper() {
+          portionenVal.textContent = String(portionen);
+          minusBtn.disabled = portionen <= 1;
+          plusBtn.disabled = portionen >= 12;
+        }
+        minusBtn.addEventListener("click", () => {
+          portionen = Math.max(1, portionen - 1);
+          paintStepper();
+        });
+        plusBtn.addEventListener("click", () => {
+          portionen = Math.min(12, portionen + 1);
+          paintStepper();
+        });
+        paintStepper();
+
+        function zeigeBereit() {
+          const startBtn = el("button", { class: "btn primary", type: "button", text: "✨ Rezept erstellen" });
+          startBtn.addEventListener("click", () => starten(startBtn));
+          bodyWrap.replaceChildren(
+            el("p", { class: "sheet-sub muted", text: `Dafür wird eine neue Liste „${listenName}“ angelegt.` }),
+            el(
+              "div",
+              { class: "gen-portionen" },
+              el("span", { class: "gen-portionen-label muted", text: "Portionen" }),
+              el("div", { class: "cook-portions" }, minusBtn, portionenVal, plusBtn)
+            ),
+            el("div", { class: "sheet-actions gen-actions" }, startBtn),
+            el(
+              "button",
+              { class: "btn ghost gen-abbrechen", type: "button", text: "Abbrechen", onclick: () => close() }
+            )
+          );
+        }
+
+        function zeigeLaden(statusText) {
+          minusBtn.disabled = true;
+          plusBtn.disabled = true;
+          bodyWrap.replaceChildren(
+            el(
+              "div",
+              { class: "gen-loading", role: "status" },
+              el("span", { class: "gen-spinner", "aria-hidden": "true" }),
+              el("p", { class: "gen-status", text: statusText })
+            )
+          );
+        }
+
+        function zeigeFehler(message, retryLabel) {
+          const retryBtn = el("button", { class: "btn primary", type: "button", text: retryLabel });
+          retryBtn.addEventListener("click", () => starten(retryBtn));
+          bodyWrap.replaceChildren(
+            el("p", { class: "error empty", text: message }),
+            el("div", { class: "sheet-actions gen-actions" }, retryBtn),
+            el("button", {
+              class: "btn ghost gen-abbrechen",
+              type: "button",
+              text: newListId ? "Schließen & aufräumen" : "Schließen",
+              onclick: async () => {
+                retryBtn.disabled = true;
+                await raeumeListeWeg();
+                if (!erledigt) close();
+              },
+            })
+          );
+        }
+
+        function zeigeVorschau(recipe) {
+          const saveBtn = el("button", { class: "btn primary", type: "button", text: "💾 Gericht speichern" });
+          const discardBtn = el("button", { class: "btn ghost", type: "button", text: "Verwerfen" });
+          saveBtn.addEventListener("click", () => speichern(recipe, saveBtn, discardBtn));
+          discardBtn.addEventListener("click", async () => {
+            saveBtn.disabled = true;
+            discardBtn.disabled = true;
+            await raeumeListeWeg();
+            if (erledigt) return;
+            toast("Verworfen");
+            close();
+          });
+          bodyWrap.replaceChildren(
+            el("p", { class: "sheet-sub muted", text: `Neue Liste: 🛒 ${listenName} · ${portionen} Portionen` }),
+            el(
+              "div",
+              { class: "card recipe-card preview gen-preview" },
+              el(
+                "div",
+                { class: "recipe-head static" },
+                el(
+                  "div",
+                  { class: "recipe-head-main" },
+                  el("span", { class: "recipe-title", text: recipe.titel }),
+                  el("span", { class: "recipe-sub muted", text: recipeMetaText(recipe) })
+                )
+              ),
+              recipeDetailsEl(recipe)
+            ),
+            el("div", { class: "sheet-actions gen-actions" }, saveBtn),
+            el("div", { class: "gen-abbrechen-wrap" }, discardBtn)
+          );
+        }
+
+        async function starten(busyBtn) {
+          if (busyBtn) busyBtn.disabled = true;
+          minusBtn.disabled = true;
+          plusBtn.disabled = true;
+          try {
+            if (!newListId) {
+              zeigeLaden("Liste wird angelegt…");
+              const created = await api("/api/lists", { body: { name: listenName } });
+              if (erledigt) return;
+              newListId = created.list.id;
+            }
+            zeigeLaden("Rezept wird erstellt… Das kann einen Moment dauern.");
+            const data = await api(`/api/list/${newListId}/generate`, {
+              body: { gericht: vollerTitel, portionen },
+            });
+            if (erledigt) return;
+            if (!data?.rezept) throw new Error("Die Antwort des KI-Dienstes konnte nicht verarbeitet werden.");
+            zeigeVorschau(data.rezept);
+          } catch (err) {
+            if (erledigt) return;
+            if (err.status === 401) {
+              state.user = null;
+              close();
+              navigate("/login", { replace: true });
+              return;
+            }
+            zeigeFehler(err.message || "Das hat leider nicht geklappt.", newListId ? "Erneut versuchen" : "Erneut versuchen");
+          }
+        }
+
+        async function speichern(recipe, saveBtn, discardBtn) {
+          saveBtn.disabled = true;
+          discardBtn.disabled = true;
+          saveBtn.textContent = "Wird gespeichert…";
+          try {
+            const data = await api(`/api/list/${newListId}/recipes`, { body: { ...recipe } });
+            if (erledigt) return;
+            gespeichert = true;
+            const saved = data.rezept ?? recipe;
+            localStorage.setItem("bl-last-list", newListId);
+            const zielListe = newListId;
+            const rezeptId = saved.id;
+            toast("Gericht gespeichert");
+            bodyWrap.replaceChildren(
+              el("p", { class: "gen-finish-icon", "aria-hidden": "true", text: "🎉" }),
+              el("p", { class: "gen-finish-title", text: "Gespeichert!" }),
+              el("p", { class: "sheet-sub muted gen-finish-sub", text: `„${saved.titel}“ liegt auf der neuen Liste „${listenName}“.` }),
+              el(
+                "div",
+                { class: "gen-finish-actions" },
+                el("a", {
+                  class: "btn primary",
+                  "data-link": "",
+                  href: rezeptId ? `/list/${zielListe}/kochen/${rezeptId}` : `/list/${zielListe}`,
+                  text: "🍳 Kochen",
+                  onclick: () => close(),
+                }),
+                el("a", {
+                  class: "btn ghost",
+                  "data-link": "",
+                  href: `/list/${zielListe}`,
+                  text: "🛒 Zur Liste",
+                  onclick: () => close(),
+                }),
+                el("button", {
+                  class: "btn ghost",
+                  type: "button",
+                  text: "📖 Zu Meine Rezepte",
+                  onclick: () => {
+                    localStorage.setItem("bl-rezepte-view", "rezepte");
+                    close();
+                    navigate("/rezepte");
+                  },
+                })
+              )
+            );
+          } catch (err) {
+            if (erledigt) return;
+            if (err.status === 401) {
+              state.user = null;
+              close();
+              navigate("/login", { replace: true });
+              return;
+            }
+            toast(err.message || "Speichern fehlgeschlagen.");
+            saveBtn.disabled = false;
+            discardBtn.disabled = false;
+            saveBtn.textContent = "💾 Gericht speichern";
+          }
+        }
+
+        sheet.append(
+          el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+          el("h2", { class: "sheet-title", text: "✨ Rezept erstellen" }),
+          el("p", { class: "sheet-sub muted", text: vollerTitel }),
+          el("div", { class: "sheet-pad" }, bodyWrap)
+        );
+        zeigeBereit();
+      },
+      {
+        onClose: () => {
+          erledigt = true;
+          void raeumeListeWeg();
+        },
+      }
+    );
+  }
+
   // ---------- Tagesvorschläge (Ideen-Ansicht) ----------
 
   /**
    * 5 täglich generierte Gerichts-Ideen. Ein Cache-Snapshot im localStorage
    * (`bl-suggestions:<Datum>`) sorgt für sofortiges Malen; der Server ist
    * aber immer die Quelle der Wahrheit und wird im Hintergrund abgeglichen.
+   * „Rezept erstellen“ öffnet direkt das Generierungs-Popup (eigene Liste,
+   * Ladezustand, Vorschau) – ohne Umweg über den Koch-Assistenten.
    */
-  function createSuggestionsView(onRezeptErstellen) {
+  function createSuggestionsView() {
     const cacheKey = `bl-suggestions:${new Date().toLocaleDateString("en-CA")}`;
     const datumLabel = new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
 
@@ -1641,7 +1865,7 @@
             class: "btn primary recipe-cook",
             type: "button",
             text: "✨ Rezept erstellen",
-            onclick: () => onRezeptErstellen(v.titel),
+            onclick: () => openRezeptGenerierenPopup(v.titel),
           }),
         ],
       });
