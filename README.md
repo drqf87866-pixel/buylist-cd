@@ -228,10 +228,10 @@ Tagesvorschläge bleiben bewusst auf dem Primärmodell.
 
 ### Rezept-Bilder (OpenRouter Images API + R2)
 
-Beim Speichern eines Rezepts generiert die OpenRouter Images API asynchron
-ein Food-Foto und legt es in R2 ab. Ohne `OPENROUTER_API_KEY` oder R2-Bucket
-wird das Bild übersprungen und die Kachel zeigt einen deterministischen
-Gradienten + Emoji.
+Das Food-Foto entsteht nur auf Klick (Button auf der Rezept-Kachel und im
+Rezept-Detail, `POST /api/list/:id/recipes/:recipeId/bild`) und wird in R2
+abgelegt. Ohne `OPENROUTER_API_KEY` oder R2-Bucket gibt es keinen Button und
+die Kachel zeigt einen deterministischen Gradienten + Emoji.
 
 **Hinweis:** Bildgenerierung ist **kostenpflichtig** (kein Free-Tier). Die
 Kosten variieren pro Modell – das Default-Modell
@@ -247,7 +247,9 @@ wrangler secret put OPENROUTER_API_KEY
 ```
 
 Der Modellname ist per `OPENROUTER_IMAGE_MODEL` überschreibbar
-(Default: `google/gemini-3.1-flash-lite-image`). Die Bild-Generierung hat einen
+(Default: `google/gemini-3.1-flash-lite-image`). Nur zum Testen lässt sich die
+alte Automatik per `OPENROUTER_IMAGE_AUTO=1` wieder einschalten (Bild startet
+dann beim Speichern asynchron). Die Bild-Generierung hat einen
 eigenen Rate-Limiter (über `RATE_LIMITER_DO.idFromName("openrouter-image")`),
 getrennt vom Text-Generator.
 
@@ -349,9 +351,9 @@ ausgerollt.
 | POST | `/api/list/:id/generate` | Rezept generieren `{gericht}` oder `{zutaten[]}` (Gemini) |
 | POST | `/api/list/:id/parse` | Sprach-Dump zerlegen `{text, vorhandene?}` → `{items}` (Groq) |
 | GET | `/api/list/:id/recipes` | Gespeicherte Rezepte dieser Liste (inkl. bildUrl/bildStatus) |
-| POST | `/api/list/:id/recipes` | Rezept speichern; startet asynchrone KI-Bild-Generierung (ctx.waitUntil) |
+| POST | `/api/list/:id/recipes` | Rezept speichern (Bild nur auf Klick, außer `OPENROUTER_IMAGE_AUTO=1`) |
 | DELETE | `/api/list/:id/recipes/:recipeId` | Rezept löschen |
-| POST | `/api/list/:id/recipes/:recipeId/bild` | Bild-Generierung wiederholen (bei fehler) |
+| POST | `/api/list/:id/recipes/:recipeId/bild` | Bild gezielt generieren (wenn fehlt/fehler; nicht bei fertig/pending) |
 | GET | `/media/rezept/:id` | Rezept-Bild aus R2 (auth-geprüft, SW-cached, offline-fähig) |
 | GET | `/api/recipes` | Alle Rezepte über alle eigenen Listen |
 | POST | `/api/list/:id/gerichte` | Gerichte zuschalten `{gerichte:[{id, nur?, supermarkt?}]}` |

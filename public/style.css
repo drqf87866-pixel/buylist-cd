@@ -1911,6 +1911,30 @@ body.has-nav .container {
   margin: 16px 0 8px;
 }
 
+.recipe-sheet-bild {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.recipe-sheet-bild-btn {
+  align-self: stretch;
+}
+
+.recipe-bild-hinweis {
+  font-size: 0.75rem;
+  margin: 0;
+}
+
+.recipe-tile-bild {
+  margin-top: 6px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
 /* ---------- FAB (Floating Action Button) ---------- */
 
 .fab {

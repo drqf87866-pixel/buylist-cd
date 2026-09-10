@@ -8,6 +8,7 @@ GEMINI_API_KEY=
 # GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite   # nur Rezept-Erstellung: 2. Versuch nach 15 s bei Timeout/Überlast
 # OPENROUTER_API_KEY=                  # für Rezept-Bilder (OpenRouter Images API)
 # OPENROUTER_IMAGE_MODEL=google/gemini-3.1-flash-lite-image
+# OPENROUTER_IMAGE_AUTO=1                # nur zum Testen: Bild beim Speichern automatisch starten (Default: aus, nur auf Klick)
 
 # --- Sprach-Dump in der Add-Bar (Groq) ---
 GROQ_API_KEY=

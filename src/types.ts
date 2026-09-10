@@ -18,6 +18,11 @@ export interface Env {
   OPENROUTER_API_KEY?: string;
   /** OpenRouter-Image-Modellname; Default in src/recipes.ts. */
   OPENROUTER_IMAGE_MODEL?: string;
+  /**
+   * Bildgenerierung beim Speichern automatisch starten ("1"/"true") oder nur
+   * auf Klick per POST .../bild (Default: aus, spart Tokens beim Testen).
+   */
+  OPENROUTER_IMAGE_AUTO?: string;
   /** Groq-Key für den Sprach-Dump-Parser (Add-Bar). */
   GROQ_API_KEY?: string;
   /** Groq-Modellname; Default in src/parse.ts. */

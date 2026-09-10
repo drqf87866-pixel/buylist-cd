@@ -567,6 +567,7 @@
     if (!state.booted) return;
     leaveListView();
     leaveCookView();
+    removeFab();
     document.querySelectorAll(".sheet-backdrop").forEach((n) => n.remove());
 
     const path = location.pathname;
@@ -1273,9 +1274,38 @@
     const cover = coverFor(recipe);
     const hasBild = recipe.bildStatus === "fertig" && recipe.bildUrl;
     const isPending = recipe.bildStatus === "pending";
+    const isFehler = recipe.bildStatus === "fehler";
+    const kannBild = !hasBild && !isPending && recipe.id && recipe.listId;
 
     const imgEl = hasBild
       ? el("img", { class: "recipe-tile-image", src: recipe.bildUrl, loading: "lazy", alt: "" })
+      : null;
+
+    const bildBtn = kannBild
+      ? el("button", {
+          class: "btn ghost recipe-tile-bild",
+          type: "button",
+          text: isFehler ? "✨ Erneut versuchen" : "✨ Bild",
+          title: "Bild generieren (kostenpflichtig, ca. $0,01–0,02)",
+          "aria-label": isFehler
+            ? `Bild für „${recipe.titel}“ erneut generieren (kostenpflichtig)`
+            : `Bild für „${recipe.titel}“ generieren (kostenpflichtig)`,
+          onclick: async (event) => {
+            event.stopPropagation();
+            bildBtn.disabled = true;
+            bildBtn.textContent = "Wird erstellt…";
+            try {
+              const data = await api(`/api/list/${recipe.listId}/recipes/${recipe.id}/bild`, { method: "POST" });
+              recipe.bildUrl = data.bildUrl ?? `/media/rezept/${recipe.id}`;
+              recipe.bildStatus = "fertig";
+              onRefresh();
+            } catch (err) {
+              toast(err.message);
+              bildBtn.disabled = false;
+              bildBtn.textContent = isFehler ? "✨ Erneut versuchen" : "✨ Bild";
+            }
+          },
+        })
       : null;
 
     const tile = el(
@@ -1291,7 +1321,9 @@
         "div",
         { class: "recipe-tile-body" },
         el("span", { class: "recipe-tile-title", text: recipe.titel }),
-        el("span", { class: "recipe-tile-meta muted", text: recipeMetaText(recipe) })
+        el("span", { class: "recipe-tile-meta muted", text: recipeMetaText(recipe) }),
+        isPending ? el("span", { class: "recipe-tile-meta muted", text: "Bild wird generiert…" }) : null,
+        bildBtn
       )
     );
 
@@ -1308,6 +1340,8 @@
     openSheet((sheet, close) => {
       const cover = coverFor(recipe);
       const hasBild = recipe.bildStatus === "fertig" && recipe.bildUrl;
+      const isPending = recipe.bildStatus === "pending";
+      const kannBild = !hasBild && !isPending && recipe.id && recipe.listId;
 
       const heroContent = hasBild
         ? el("img", { class: "recipe-sheet-hero-img", src: recipe.bildUrl, alt: "" })
@@ -1319,11 +1353,59 @@
         heroContent
       );
 
+      // Bild-Generierung nur auf Klick (spart Tokens): Button nur, solange
+      // kein fertiges Bild da ist. Fertige Bilder werden nicht überschrieben.
+      const bildFehler = el("p", { class: "error", hidden: true });
+      const bildBtn = kannBild
+        ? el("button", {
+            class: "btn ghost recipe-sheet-bild-btn",
+            type: "button",
+            text: recipe.bildStatus === "fehler" ? "✨ Erneut versuchen" : "✨ Bild generieren",
+          })
+        : null;
+      if (bildBtn) {
+        bildBtn.addEventListener("click", async () => {
+          bildBtn.disabled = true;
+          bildBtn.textContent = "Bild wird erstellt…";
+          bildFehler.hidden = true;
+          try {
+            const data = await api(`/api/list/${recipe.listId}/recipes/${recipe.id}/bild`, { method: "POST" });
+            recipe.bildUrl = data.bildUrl ?? `/media/rezept/${recipe.id}`;
+            recipe.bildStatus = "fertig";
+            hero.replaceChildren(
+              el("img", { class: "recipe-sheet-hero-img", src: recipe.bildUrl, alt: "" })
+            );
+            bildZeile.hidden = true;
+            onRefresh();
+          } catch (err) {
+            if (err.status !== 409) recipe.bildStatus = "fehler";
+            bildFehler.textContent = err.message;
+            bildFehler.hidden = false;
+            bildBtn.disabled = false;
+            bildBtn.textContent = "✨ Erneut versuchen";
+          }
+        });
+      }
+      const bildZeile = kannBild || isPending
+        ? el(
+            "div",
+            { class: "recipe-sheet-bild" },
+            isPending
+              ? el("p", { class: "muted", text: "Bild wird generiert…" })
+              : bildBtn,
+            isPending
+              ? null
+              : el("p", { class: "muted recipe-bild-hinweis", text: "Kostenpflichtig (ca. $0,01–0,02 pro Bild)." }),
+            bildFehler
+          )
+        : null;
+
       const body = el(
         "div",
         { class: "recipe-sheet-body" },
         el("h2", { class: "recipe-sheet-title", text: recipe.titel }),
         el("p", { class: "recipe-sheet-meta muted", text: recipeMetaText(recipe) }),
+        bildZeile,
         recipeDetailsEl(recipe),
         el(
           "div",

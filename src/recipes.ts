@@ -345,6 +345,12 @@ async function callOpenRouterImage(env: Env, prompt: string): Promise<{ base64: 
   }
 }
 
+/** Ob das Rezept-Bild beim Speichern automatisch startet (Default: aus, nur auf Klick). */
+export function istBildAutoAktiv(env: Env): boolean {
+  const raw = env.OPENROUTER_IMAGE_AUTO?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "ja" || raw === "yes" || raw === "on";
+}
+
 /** bild_key und bild_status in der Datenbank setzen. */
 async function updateBildStatus(
   db: D1Database,
@@ -739,7 +745,9 @@ interface SaveBody {
  * POST /api/list/:id/recipes – speichert ein Rezept in der Gerichte-Sammlung.
  * Auf eine Einkaufsliste kommt es bewusst erst beim Zuschalten
  * (POST /api/list/:id/gerichte), nicht mehr automatisch beim Speichern.
- * Nach dem Speichern wird asynchron (ctx.waitUntil) ein KI-Bild generiert.
+ * Das KI-Bild startet nur noch auf Klick (POST .../bild) – außer
+ * OPENROUTER_IMAGE_AUTO ist gesetzt, dann wie bisher asynchron per
+ * ctx.waitUntil nach dem Speichern (kostet pro Rezept Tokens).
  */
 export async function handleSaveRecipe(request: Request, env: Env, ctx: ExecutionContext, listId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
@@ -751,7 +759,7 @@ export async function handleSaveRecipe(request: Request, env: Env, ctx: Executio
 
     const id = crypto.randomUUID();
     const now = Date.now();
-    const hatBildKey = env.OPENROUTER_API_KEY && env.RECIPE_IMAGES;
+    const autoBild = istBildAutoAktiv(env) && env.OPENROUTER_API_KEY && env.RECIPE_IMAGES;
     await env.DB.prepare(
       `INSERT INTO recipes (id, list_id, titel, zeit, portionen, zutaten, schritte, created_by, created_at, bild_key, bild_status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
@@ -759,12 +767,12 @@ export async function handleSaveRecipe(request: Request, env: Env, ctx: Executio
       .bind(
         id, listId, recipe.titel, recipe.zeit ?? null, recipe.portionen,
         JSON.stringify(recipe.zutaten), JSON.stringify(recipe.schritte), user.id, now,
-        hatBildKey ? "pending" : null
+        autoBild ? "pending" : null
       )
       .run();
 
     const responseRecipe = { ...recipe, id, createdAt: now };
-    if (hatBildKey) {
+    if (autoBild) {
       responseRecipe.bildStatus = "pending";
       ctx.waitUntil(generateRecipeImage(env, id, recipe));
     }
@@ -979,19 +987,28 @@ export async function handleGetRecipeImage(request: Request, env: Env, recipeId:
 }
 
 /**
- * POST /api/list/:id/recipes/:recipeId/bild – wiederholt die Bild-Generierung
- * für ein Rezept, dessen vorheriger Versuch fehlgeschlagen ist (bild_status = 'fehler').
+ * POST /api/list/:id/recipes/:recipeId/bild – startet die Bild-Generierung
+ * gezielt auf Klick (wenn noch kein Bild da ist oder der letzte Versuch mit
+ * bild_status = 'fehler' endete). Ein fertiges Bild wird bewusst nicht
+ * überschrieben (kostet erneut Tokens), ein laufender Versuch ('pending')
+ * wird nicht doppelt gestartet.
  */
 export async function handleRetryRecipeImage(request: Request, env: Env, listId: string, recipeId: string): Promise<Response> {
   return withAuth(request, env.DB, async ({ user }) => {
     if (!(await checkListAccess(env, listId, user.id))) return listNotFound();
 
     const row = await env.DB.prepare(
-      "SELECT bild_status FROM recipes WHERE id = ? AND list_id = ?"
+      "SELECT bild_key, bild_status FROM recipes WHERE id = ? AND list_id = ?"
     )
       .bind(recipeId, listId)
-      .first<{ bild_status: string | null }>();
+      .first<{ bild_key: string | null; bild_status: string | null }>();
     if (!row) return json({ error: "Rezept nicht gefunden." }, 404);
+    if (row.bild_status === "fertig" && row.bild_key) {
+      return json({ error: "Dieses Rezept hat bereits ein Bild." }, 400);
+    }
+    if (row.bild_status === "pending") {
+      return json({ error: "Das Bild wird bereits generiert." }, 409);
+    }
     if (!env.OPENROUTER_API_KEY || !env.RECIPE_IMAGES) {
       return json({ error: "Bild-Generierung nicht konfiguriert." }, 400);
     }
