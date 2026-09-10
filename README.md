@@ -220,6 +220,12 @@ Der Modellname für die Rezept-/Vorschlags-Generierung ist als Worker-Secret
 `GEMINI_MODEL` überschreibbar (Default: `gemini-3.5-flash-lite`, ein aktueller
 Stable-Modellname). So lassen sich neue Modelle ohne Code-Änderung nachziehen.
 
+Nur die Rezept-Erstellung (`POST /api/list/:id/generate`) hat einen zweiten
+Versuch: antwortet das Primärmodell nicht in 15 s oder meldet Überlast
+(429/5xx/Antwortfehler), folgt ein Versuch mit `GEMINI_FALLBACK_MODEL`
+(Default: `gemini-3.1-flash-lite`, gleicher `GEMINI_API_KEY`, ebenfalls 15 s).
+Tagesvorschläge bleiben bewusst auf dem Primärmodell.
+
 ### Rezept-Bilder (OpenRouter Images API + R2)
 
 Beim Speichern eines Rezepts generiert die OpenRouter Images API asynchron

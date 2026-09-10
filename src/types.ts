@@ -9,6 +9,11 @@ export interface Env {
   GEMINI_API_KEY?: string;
   /** Gemini-Modellname; Default in src/recipes.ts, überschreibbar per Secret/Env. */
   GEMINI_MODEL?: string;
+  /**
+   * Fallback-Modell nur für die Rezept-Erstellung (POST /api/list/:id/generate):
+   * greift bei Timeout/Überlast des Primärmodells, gleicher GEMINI_API_KEY.
+   */
+  GEMINI_FALLBACK_MODEL?: string;
   /** OpenRouter-Key für die Bildgenerierung (Rezept-Fotos); optional – ohne Key wird der Emoji-Fallback gezeigt. */
   OPENROUTER_API_KEY?: string;
   /** OpenRouter-Image-Modellname; Default in src/recipes.ts. */

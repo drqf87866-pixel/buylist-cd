@@ -5,6 +5,7 @@
 # --- Rezepte & Tagesvorschläge (Gemini) ---
 GEMINI_API_KEY=
 # GEMINI_MODEL=gemini-3.5-flash-lite
+# GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite   # nur Rezept-Erstellung: 2. Versuch nach 15 s bei Timeout/Überlast
 # OPENROUTER_API_KEY=                  # für Rezept-Bilder (OpenRouter Images API)
 # OPENROUTER_IMAGE_MODEL=google/gemini-3.1-flash-lite-image
 

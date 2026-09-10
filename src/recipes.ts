@@ -10,6 +10,8 @@ import categoriesJson from "../public/data/categories.json";
 const CATEGORY_IDS: string[] = [...categoriesJson.map((c) => c.id), "sonstiges"];
 
 const GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite";
+/** Fallback nur für die Rezept-Erstellung bei Timeout/Überlast des Primärmodells (gleicher API-Key). */
+const GEMINI_FALLBACK_MODEL_DEFAULT = "gemini-3.1-flash-lite";
 const OPENROUTER_IMAGE_MODEL_DEFAULT = "google/gemini-3.1-flash-lite-image";
 const OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/images";
 const GEMINI_URL_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -18,6 +20,9 @@ const GEMINI_URL_BASE = "https://generativelanguage.googleapis.com/v1beta/models
 const MAX_ZUTATEN = 50;
 const MAX_SCHRITTE = 30;
 const GEMINI_TIMEOUT_MS = 45_000;
+/** Jeweils 15 s für Primär- und Fallback-Versuch der Rezept-Erstellung (nur dort). */
+const GEMINI_GENERATE_TIMEOUT_MS = 15_000;
+const GEMINI_FALLBACK_TIMEOUT_MS = 15_000;
 
 // Cache-Version hochzählen, wenn SYSTEM_ANWEISUNG oder responseSchema in
 // generateRecipe() sich inhaltlich ändern – alte Cache-Einträge werden dann
@@ -79,6 +84,14 @@ interface GeminiCallOptions {
    * Rezept-Pfad bleibt damit bewusst deterministisch.
    */
   temperature?: number;
+  /**
+   * Modell-Override für diesen Call (z. B. der Generate-Fallback). Fehlt er,
+   * gilt `GEMINI_MODEL` bzw. der Default – Vorschläge bleiben damit immer auf
+   * dem Primärmodell.
+   */
+  model?: string;
+  /** Timeout-Override in ms für diesen Call; Default GEMINI_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 /**
@@ -94,8 +107,11 @@ export async function callGeminiJson(env: Env, options: GeminiCallOptions): Prom
 
   // Modellname per Env-Var überschreibbar (z. B. fürs Nachziehen neuer
   // Modelle); Default ist ein aktueller Stable-Modellname (gemini-3.5-flash-lite).
-  const model = env.GEMINI_MODEL ?? GEMINI_MODEL_DEFAULT;
+  // Ein explizites Call-Override (Generate-Fallback) gewinnt gegen GEMINI_MODEL.
+  const model = options.model?.trim() || env.GEMINI_MODEL?.trim() || GEMINI_MODEL_DEFAULT;
   const url = `${GEMINI_URL_BASE}/${model}:generateContent`;
+  const timeoutMs = options.timeoutMs ?? GEMINI_TIMEOUT_MS;
+  const start = Date.now();
 
   const body = {
     systemInstruction: { parts: [{ text: options.systemInstruction }] },
@@ -108,7 +124,7 @@ export async function callGeminiJson(env: Env, options: GeminiCallOptions): Prom
   };
 
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), GEMINI_TIMEOUT_MS);
+  const timer = setTimeout(() => abort.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, {
@@ -127,7 +143,10 @@ export async function callGeminiJson(env: Env, options: GeminiCallOptions): Prom
   }
 
   if (!res.ok) {
-    console.error("Gemini-Fehler:", res.status, await res.text().catch(() => ""));
+    console.error("Gemini-Fehler:", model, res.status, await res.text().catch(() => ""));
+    if (res.status === 429) {
+      throw new GeminiError(429, `Die ${options.kontext} ist fehlgeschlagen. Bitte versuch es nochmal.`);
+    }
     throw new GeminiError(502, `Die ${options.kontext} ist fehlgeschlagen. Bitte versuch es nochmal.`);
   }
 
@@ -147,14 +166,16 @@ export async function callGeminiJson(env: Env, options: GeminiCallOptions): Prom
   }
 
   try {
-    return JSON.parse(text);
+    const parsed: unknown = JSON.parse(text);
+    console.log(`Gemini ${options.kontext}: ${model} in ${Date.now() - start} ms`);
+    return parsed;
   } catch {
     throw new GeminiError(502, "Die Antwort des KI-Dienstes konnte nicht verarbeitet werden.");
   }
 }
 
 async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise<Recipe> {
-  const raw = await callGeminiJson(env, {
+  const base = {
     systemInstruction: SYSTEM_ANWEISUNG,
     userContent: buildUserContent(options),
     responseSchema: {
@@ -186,7 +207,23 @@ async function generateRecipe(env: Env, options: GenerateRecipeOptions): Promise
       required: ["titel", "zutaten", "schritte"],
     },
     kontext: "Rezept-Erstellung",
-  });
+  };
+
+  // Nur der Generate-Pfad bekommt einen zweiten Versuch: schlägt das
+  // Primärmodell mit Timeout/Überlast/Antwortfehler fehl (15 s), folgt ein
+  // Versuch mit dem Fallback-Modell (15 s, gleicher Key). 400er (Block) und
+  // fehlender Key fallen bewusst nicht darunter. Der Rate-Limiter wurde in
+  // handleGenerate bereits vorher genau einmal gezählt.
+  let raw: unknown;
+  try {
+    raw = await callGeminiJson(env, { ...base, timeoutMs: GEMINI_GENERATE_TIMEOUT_MS });
+  } catch (err) {
+    const primaer = geminiPrimaerModell(env);
+    const fallback = geminiFallbackModell(env);
+    if (!isWiederholbarerGeminiFehler(err) || fallback === primaer) throw err;
+    console.error(`Gemini-Fallback Rezept-Erstellung: ${primaer} -> ${fallback}`, err);
+    raw = await callGeminiJson(env, { ...base, model: fallback, timeoutMs: GEMINI_FALLBACK_TIMEOUT_MS });
+  }
 
   const recipe = sanitizeRecipe(raw, options.portionen);
   if (!recipe) {
@@ -429,6 +466,24 @@ export class GeminiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** Primärmodell für alle Gemini-Pfade (per GEMINI_MODEL überschreibbar). */
+export function geminiPrimaerModell(env: Env): string {
+  return env.GEMINI_MODEL?.trim() || GEMINI_MODEL_DEFAULT;
+}
+
+/** Fallback-Modell nur für die Rezept-Erstellung (per GEMINI_FALLBACK_MODEL überschreibbar). */
+export function geminiFallbackModell(env: Env): string {
+  return env.GEMINI_FALLBACK_MODEL?.trim() || GEMINI_FALLBACK_MODEL_DEFAULT;
+}
+
+/**
+ * Nur Timeout (504), Rate-Limit/Überlast (429) und Antwortfehler (502) sind
+ * einen Fallback-Versuch wert – 400 (geblockt) und 500 (fehlender Key) nicht.
+ */
+export function isWiederholbarerGeminiFehler(err: unknown): boolean {
+  return err instanceof GeminiError && (err.status === 429 || err.status === 502 || err.status === 504);
 }
 
 /** Kategorie-Id prüfen: nur Werte aus dem Wörterbuch durchlassen. */
