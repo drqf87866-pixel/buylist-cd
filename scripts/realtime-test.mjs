@@ -266,6 +266,91 @@ const selfRemove = await api(cookieA, `/api/list/${listId}/members`, {
 });
 assert(selfRemove.status === 400, "Owner kann sich nicht selbst entfernen (400)");
 
+console.log("== Entferntes Mitglied vom Live-Zugriff trennen (Kick) ==");
+
+// C über den Invite-Token beitreten lassen
+const joinC = await api(cookieC, "/api/join", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token }),
+});
+assert(joinC.status === 200, "User C per Invite-Token beigetreten (für Kick-Test)");
+const meC = await api(cookieC, "/api/auth/me");
+const userIdC = meC.data.user.id;
+
+// C's WebSocket öffnen und auf erstes sync warten
+const clientCkick = connect(cookieC, listId, "C-kick");
+await waitFor(clientCkick.ws, "open");
+const initCKick = await nextSync(clientCkick);
+assert(initCKick.items.length >= 0, "C bekommt initiales sync");
+
+// A entfernt C (DELETE /members, body {userId: C.id})
+const removeC = await api(cookieA, `/api/list/${listId}/members`, {
+  method: "DELETE",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ userId: userIdC }),
+});
+assert(removeC.status === 200, "Owner entfernt C (200)");
+
+// C's WS erhält "removed"-Nachricht und wird geschlossen
+const removedMsg = await nextMessage(clientCkick, (m) => m.type === "removed");
+assert(removedMsg.type === "removed", "C erhält removed-Broadcast");
+await new Promise((r) => setTimeout(r, 300));
+assert(
+  clientCkick.ws.readyState === WebSocket.CLOSING || clientCkick.ws.readyState === WebSocket.CLOSED,
+  "C's WS nach removed geschlossen"
+);
+try { clientCkick.ws.terminate(); } catch { /* ignore */ }
+
+// Neuer WS-Versuch von C schlägt fehl (keine Membership mehr)
+const clientCafter = connect(cookieC, listId, "C-after");
+const wsCafterResult = await Promise.race([
+  waitFor(clientCafter.ws, "error").then(() => "rejected"),
+  waitFor(clientCafter.ws, "open").then(() => "opened"),
+]);
+assert(wsCafterResult === "rejected", "WS von C nach Remove abgelehnt");
+try { clientCafter.ws.close(); } catch { /* ignore */ }
+
+// C kann nicht mehr per Snapshot lesen (404)
+assert(
+  (await api(cookieC, `/api/list/${listId}/snapshot`)).status === 404,
+  "Snapshot von C nach Remove -> 404"
+);
+
+// C kann das Invite-Token nicht abrufen (404)
+assert(
+  (await api(cookieC, `/api/list/${listId}/invite`)).status === 404,
+  "Invite von C nach Remove -> 404"
+);
+
+// JOIN mit dem ALTEN Invite-Token -> 404 (rotiert)
+const oldTokenJoin = await api(cookieC, "/api/join", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token }),
+});
+assert(oldTokenJoin.status === 404, "Alter Invite-Token nach Remove -> 404");
+
+// A holt das neue Invite-Token; C kann damit beitreten
+const newInvite = await api(cookieA, `/api/list/${listId}/invite`);
+assert(newInvite.status === 200, "A holt neuen Invite-Link");
+const newToken = newInvite.data.url.split("/join/")[1];
+assert(newToken !== token, "Neues Token unterscheidet sich vom alten");
+const reJoinC = await api(cookieC, "/api/join", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token: newToken }),
+});
+assert(reJoinC.status === 200, "C tritt mit neuem Token wieder bei (200)");
+
+// Aufräumen: C wieder entfernen, damit der Rest des Tests ungestört bleibt
+const removeCagain = await api(cookieA, `/api/list/${listId}/members`, {
+  method: "DELETE",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ userId: userIdC }),
+});
+assert(removeCagain.status === 200, "C nach Re-Join wieder entfernt");
+
 // Präferenzen speichern & lesen
 const prefsSave = await api(cookieA, "/api/preferences", {
   method: "PUT",
@@ -379,6 +464,30 @@ assert(
   magicVerify.status === 302 && verifyLocation.includes("/login") && verifyLocation.includes("magic="),
   `GET /api/auth/magic/verify mit unbekanntem Token -> 302 /login?magic=… (${magicVerify.status})`
 );
+
+// Brute-Force-Schutz: Fehlversuche für eine dedizierte, je Lauf eindeutige
+// E-Mail (das E-Mail-Limit von 10/5 Min im DO persistiert, eine feste Adresse
+// würde einen zweiten Testlauf innerhalb des Fensters scheitern lassen).
+// Ab der Blockade bleibt alles bei 429 (blockierte Versuche zählen nicht nach);
+// ist die IP aus früheren Läufen schon voll, blockiert auch Versuch 1 korrekt.
+console.log("== Brute-Force-Schutz ==");
+const BRUTE_EMAIL = `brute-${Date.now()}@buylist.test`;
+let bruteBlocked = false;
+for (let i = 1; i <= 12; i++) {
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: BRUTE_EMAIL, password: "falsch" + i }),
+  });
+  if (bruteBlocked) {
+    assert(res.status === 429, `Brute-Versuch ${i} nach Blockade: 429 erwartet, bekam ${res.status}`);
+  } else if (res.status === 429) {
+    bruteBlocked = true;
+  } else {
+    assert(res.status === 401, `Brute-Versuch ${i}: 401 erwartet, bekam ${res.status}`);
+  }
+}
+assert(bruteBlocked, "Brute-Force-Schutz hat 429 ausgelöst");
 
 // Owner-Übertragung: B wird Owner, A Member
 const transfer = await api(cookieA, `/api/list/${listId}/owner`, {

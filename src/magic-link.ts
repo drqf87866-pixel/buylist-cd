@@ -1,6 +1,7 @@
 import { randomToken, sha256Base64Url } from "./crypto";
 import { createSession, sessionCookie } from "./session";
 import { json, missingSecret, readJson } from "./util";
+import { checkLimit } from "./do/rate-limiter";
 import type { Env, PublicUser } from "./types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -15,6 +16,55 @@ const MAGIC_RATE_MAX = 3;
  * ein Passwort-Login ist damit bewusst unmöglich.
  */
 const MAGIC_SENTINEL = "magic";
+
+/**
+ * Reine Entscheidungslogik: was soll bei einem Magic-Verify mit dem Konto
+ * passieren? Siehe emailVerifyAktion-Tabelle in der Aufgabenbeschreibung.
+ */
+export function emailVerifyAktion(emailVerifiedAt: number | null, passwordHash: string): {
+  setVerified: boolean;
+  discardPassword: boolean;
+  wipeSessions: boolean;
+} {
+  if (emailVerifiedAt !== null) {
+    return { setVerified: false, discardPassword: false, wipeSessions: false };
+  }
+  if (passwordHash.startsWith("pbkdf2:")) {
+    return { setVerified: true, discardPassword: true, wipeSessions: true };
+  }
+  return { setVerified: true, discardPassword: false, wipeSessions: false };
+}
+
+/**
+ * Setzt email_verified_at und verwirft ggf. das Passwort eines unverifizierten
+ * Passwort-Kontos (Account-Übernahme-Schutz). Muss VOR createSession aufgerufen
+ * werden, damit der Session-Wipe nicht die frische Session des Verifizierers löscht.
+ */
+async function verifyUserEmail(env: Env, userId: string): Promise<void> {
+  const row = await env.DB
+    .prepare("SELECT email_verified_at, password_hash FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ email_verified_at: number | null; password_hash: string }>();
+  if (!row) return;
+
+  const aktion = emailVerifyAktion(row.email_verified_at, row.password_hash);
+  if (!aktion.setVerified) return;
+
+  const now = Date.now();
+  if (aktion.discardPassword) {
+    // Verifizierung über den E-Mail-Beweis entzieht das nie bestätigte Passwort (H5).
+    await env.DB
+      .prepare("UPDATE users SET email_verified_at = ?, password_hash = ? WHERE id = ?")
+      .bind(now, MAGIC_SENTINEL, userId)
+      .run();
+    await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId).run();
+  } else {
+    await env.DB
+      .prepare("UPDATE users SET email_verified_at = ? WHERE id = ? AND email_verified_at IS NULL")
+      .bind(now, userId)
+      .run();
+  }
+}
 
 interface MagicRequestBody {
   email?: string;
@@ -85,8 +135,18 @@ export async function handleMagicRequest(request: Request, env: Env): Promise<Re
   }
 
   const now = Date.now();
-  // Abgelaufene Tokens aller Nutzer sowie alte Tokens dieser E-Mail räumen.
+  // Abgelaufene Tokens aller Nutzer räumen.
   await env.DB.prepare("DELETE FROM magic_links WHERE expires_at < ?").bind(now).run();
+
+  // IP-basiertes Rate-Limit vor dem DB-Check, damit auch nicht in D1 geschrieben
+  // wird, wenn die IP bereits blockiert ist.
+  const ip = request.headers.get("cf-connecting-ip") ?? "unbekannt";
+  const ipLimit = await checkLimit(env, `magic-ip:${ip}`, 6, 5 * 60 * 1000);
+  if (!ipLimit.ok) {
+    return json({ error: "Zu viele Anfragen. Bitte warte ein paar Minuten." }, 429, {
+      "retry-after": String(ipLimit.retryAfterSec),
+    });
+  }
 
   const recent = await env.DB
     .prepare("SELECT COUNT(*) AS anzahl FROM magic_links WHERE email = ? AND created_at > ?")
@@ -98,8 +158,10 @@ export async function handleMagicRequest(request: Request, env: Env): Promise<Re
     });
   }
 
-  // Frühere, noch offene Links dieser E-Mail entwerten – es gilt immer nur der neueste.
-  await env.DB.prepare("DELETE FROM magic_links WHERE email = ? AND used_at IS NULL").bind(email).run();
+  // Frühere, noch offene Links dieser E-Mail entwerten statt löschen, damit
+  // das COUNT-Fenster oben funktioniert: DELETE würde die Zeilen entfernen,
+  // sodass der COUNT immer 0 sieht und das E-Mail-Limit nicht wirkt.
+  await env.DB.prepare("UPDATE magic_links SET used_at = ? WHERE email = ? AND used_at IS NULL").bind(now, email).run();
 
   const token = randomToken(32);
   const tokenHash = await sha256Base64Url(token);
@@ -152,6 +214,7 @@ export async function handleMagicVerify(request: Request, env: Env): Promise<Res
   if (!claim.meta.changes) return fail("verbraucht");
 
   const user = await findOrCreateUser(env, row.email);
+  await verifyUserEmail(env, user.id);
   const { token: sessionToken, expiresAt } = await createSession(env.DB, user.id);
   const maxAge = Math.max(0, Math.floor((expiresAt - now) / 1000));
 

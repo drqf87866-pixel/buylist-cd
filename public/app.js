@@ -4404,6 +4404,16 @@
             }
             toast("Die Liste wurde gelöscht.");
             navigate("/", { replace: true });
+          } else if (msg.type === "removed") {
+            clearTimers();
+            closedByUs = true;
+            try {
+              ws.close();
+            } catch {
+              // schon zu
+            }
+            toast("Du wurdest von dieser Liste entfernt.");
+            navigate("/", { replace: true });
           } else if (msg.type === "error" && msg.message) toast(msg.message);
         } catch {
           // fehlerhafte Nachrichten ignorieren

@@ -130,6 +130,9 @@ export class ShoppingListDO {
       case "/destroy": {
         return this.handleDestroy();
       }
+      case "/kick": {
+        return this.handleKick(request);
+      }
       case "/ws": {
         return this.handleWs(request, url);
       }
@@ -340,6 +343,42 @@ export class ShoppingListDO {
     await this.state.storage.deleteAll();
     this.cached = null;
     return json({ ok: true });
+  }
+
+  /**
+   * Interner Endpunkt: trennt alle WebSockets eines bestimmten userId.
+   * Wird vom Worker nach Session- und Membership-Prüfung aufgerufen
+   * (gleiches Vertrauensmodell wie /destroy).
+   */
+  private async handleKick(request: Request): Promise<Response> {
+    let body: { userId?: string };
+    try {
+      body = (await request.json()) as { userId?: string };
+    } catch {
+      return json({ error: "Ungültiger Body." }, 400);
+    }
+    const targetId = body?.userId ?? "";
+    if (!targetId) return json({ error: "userId fehlt." }, 400);
+
+    const payload = JSON.stringify({ type: "removed" });
+    let kicked = 0;
+    for (const socket of this.state.getWebSockets()) {
+      const meta = socket.deserializeAttachment() as WsMeta | null;
+      if (meta?.userId === targetId) {
+        try {
+          socket.send(payload);
+        } catch {
+          // tote Verbindung
+        }
+        try {
+          socket.close(1000, "removed");
+        } catch {
+          // schon zu
+        }
+        kicked += 1;
+      }
+    }
+    return json({ ok: true, kicked });
   }
 
   private async handleWs(request: Request, url: URL): Promise<Response> {

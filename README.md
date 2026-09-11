@@ -99,7 +99,7 @@ Die Oberfläche ist mobile-first gebaut (eine Hand, Daumen, Safe-Areas):
   Chip-Zeilen zeigen per Rand-Fade, dass weitere Einträge folgen.
 
 Dark Mode ist bewusst nicht umgesetzt – die App bleibt auf der hellen
-„Papier & Markt“-Palette (`color-scheme: light`).
+„Klarer Markt“-Palette (kühles Hellgrau/Weiß/Emerald, `color-scheme: light`).
 
 ## Architektur
 
@@ -152,6 +152,9 @@ Wichtige Design-Entscheidungen:
   < 15 Tage, inkl. neuem Set-Cookie).
 - **Nicht-Mitglieder bekommen 404** (statt 403), damit die Existenz fremder
   Listen nicht aufscheint.
+- **Login-Rate-Limiting**: Fehlversuche werden pro E-Mail (10/5 Min) und pro IP
+  (30/5 Min) gezählt; erfolgreiche Logins verbrennen kein Kontingent. Ein
+  Dummy-Passwort-Hash verhindert Timing-Orakel bei unbekannten E-Mails.
 - **Vollstands-Sync**: Jede Änderung broadcastet `{type:"sync", list}` mit dem
   kompletten Listenstand – robust und ohne Client-Diffing. Der Browser-Client
   hält die Verbindung mit einem 25-s-`ping` am Leben, den die DO-Runtime per
@@ -159,6 +162,9 @@ Wichtige Design-Entscheidungen:
 - **User-Kontext beim WS-Upgrade**: Der Worker prüft Session + Mitgliedschaft
   und übergibt `x-user-id`/`x-display-name` serverseitig als Header
   (eingehende gleichnamige Header werden vorher entfernt – kein Spoofing).
+- **Kick bei Mitgliederentfernung**: Entfernte oder ausgetretene Mitglieder
+  werden per DO-/kick sofort vom WebSocket getrennt; beim Entfernen wird das
+  Invite-Token rotiert.
 
 ## Setup (lokale Entwicklung)
 
@@ -249,8 +255,13 @@ jeweiligen Requests verwendet (lokal also `http://127.0.0.1:8787`).
 Ablauf: `POST /api/auth/magic/request` legt einen Token an (nur als SHA-256-Hash
 in `magic_links`, 15 Min gültig, Einmal-Verwendung) und verschickt den Link.
 Der Klick auf `/api/auth/magic/verify?token=…` prüft und entwertet den Token,
-setzt das `bl_session`-Cookie und leitet per 302 in die App. Pro E-Mail sind
-höchstens 3 Anfragen je 5 Minuten erlaubt.
+setzt das `bl_session`-Cookie und leitet per 302 in die App. Magic-Link-Anfragen
+sind pro E-Mail (3/5 Min) und pro IP (6/5 Min) begrenzt.
+
+Der erste Magic-Link-Login bestätigt die E-Mail-Adresse; bei einem bisher
+unverifizierten Passwort-Konto wird dessen Passwort verworfen und alle Sessions
+gelöscht – so kann sich niemand vorab mit einer fremden Adresse registrieren
+und später mitlesen (Account-Übernahme-Schutz).
 
 ### Gemini-Modell
 

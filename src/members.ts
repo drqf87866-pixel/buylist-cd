@@ -1,7 +1,26 @@
+import { randomToken } from "./crypto";
 import { withAuth } from "./session";
 import { destroyListDoState, getListMeta, getRole, isMember } from "./lists";
 import { json, listNotFound, readJson } from "./util";
 import type { Env } from "./types";
+
+/**
+ * Best-effort: schickt dem DO-Signal, einen bestimmten userId per WebSocket
+ * zu trennen (removed-Nachricht + close). Fehler nur loggen – gleiches Muster
+ * wie destroyListDoState in lists.ts.
+ */
+async function kickMember(env: Env, listId: string, userId: string): Promise<void> {
+  try {
+    const stub = env.SHOPPING_LIST_DO.get(env.SHOPPING_LIST_DO.idFromName(listId));
+    await stub.fetch("https://do/kick", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+  } catch (err) {
+    console.error("DO-kick fehlgeschlagen:", err);
+  }
+}
 
 interface MemberRow {
   id: string;
@@ -66,9 +85,12 @@ export async function handleRemoveMember(request: Request, env: Env, listId: str
     if (!targetRole) return json({ error: "Mitglied nicht gefunden." }, 404);
     if (targetRole === "owner") return json({ error: "Ein Owner kann nicht entfernt werden." }, 400);
 
-    await env.DB.prepare("DELETE FROM list_memberships WHERE list_id = ? AND user_id = ?")
-      .bind(listId, targetId)
-      .run();
+    const newToken = randomToken(16);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM list_memberships WHERE list_id = ? AND user_id = ?").bind(listId, targetId),
+      env.DB.prepare("UPDATE lists SET invite_token = ? WHERE id = ?").bind(newToken, listId),
+    ]);
+    await kickMember(env, listId, targetId);
     return json({ ok: true });
   });
 }
@@ -136,6 +158,7 @@ export async function handleLeaveList(request: Request, env: Env, listId: string
       await env.DB.prepare("DELETE FROM list_memberships WHERE list_id = ? AND user_id = ?")
         .bind(listId, user.id)
         .run();
+      await kickMember(env, listId, user.id);
       return json({ ok: true });
     }
 
@@ -163,9 +186,13 @@ export async function handleLeaveList(request: Request, env: Env, listId: string
 
     if (results[0].meta.changes) {
       // Liste wurde als letztes Mitglied gelöscht – DO-State noch wegwerfen.
+      // destroyListDoState broadcastet bereits "deleted" an alle Clients,
+      // daher hier kein zusätzliches Kick nötig.
       await destroyListDoState(env, listId);
       return json({ ok: true, deleted: true });
     }
+    // Liste lebt weiter (Nachfolger ist Owner) – austretenden User trennen.
+    await kickMember(env, listId, user.id);
     return json({ ok: true });
   });
 }

@@ -125,7 +125,8 @@ export type ClientMessage =
 /** Durable Object -> Client */
 export type ServerMessage =
   | { type: "sync"; list: ShoppingList }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "removed" };
 
 export interface PublicUser {
   id: string;

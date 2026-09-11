@@ -1,7 +1,13 @@
 import { hashPassword, verifyPassword } from "./crypto";
 import { createSession, deleteSessionByToken, sessionCookie, clearSessionCookie, SESSION_COOKIE, withAuth } from "./session";
 import { getCookie, json, readJson } from "./util";
+import { checkLimit } from "./do/rate-limiter";
 import type { Env, PublicUser } from "./types";
+
+// Dummy gegen Timing-Orakel: bei unbekannter E-Mail wird gegen diesen Hash
+// verifiziert, sodass die Antwortzeit unabhängig davon ist, ob der Nutzer
+// existiert. Erzeugt mit hashPassword("dummy-timing-oracle").
+const DUMMY_PASSWORD_HASH = "pbkdf2:100000:697d9XDWIK3GOxE-GonqVw:G5cpmRyuJ85Fwua_MSm7V1hA_8xTaCkNW6-gtFIa2MM";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -31,6 +37,10 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   const password = body?.password ?? "";
   const displayName = (body?.displayName ?? "").trim();
 
+  // Kein Verifizierungszwang: Passwort-Konten ohne E-Mail-Bestätigung sind
+  // zulässig. Der E-Mail-Inhaber kann die Adresse jederzeit per Magic Link
+  // nachträglich übernehmen – das verifiziert die Adresse und entzieht dem
+  // nie bestätigten Passwort die Gültigkeit (Account-Übernahme-Schutz H5).
   if (!EMAIL_RE.test(email)) return json({ error: "Bitte gib eine gültige E-Mail-Adresse ein." }, 400);
   if (password.length < 8) return json({ error: "Das Passwort muss mindestens 8 Zeichen lang sein." }, 400);
   if (displayName.length < 1 || displayName.length > 40) {
@@ -69,7 +79,25 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
     .bind(email)
     .first<{ id: string; email: string; display_name: string; password_hash: string }>();
 
-  if (!row || !(await verifyPassword(password, row.password_hash))) {
+  // Timing-Orakel schließen: IMMER ein verifyPassword ausführen, bei
+  // unbekanntem Nutzer gegen den Dummy-Hash.
+  const passwordHash = row?.password_hash ?? DUMMY_PASSWORD_HASH;
+  const passwordOk = await verifyPassword(password, passwordHash);
+
+  if (!row || !passwordOk) {
+    // Fehlversuch zählen – nur nach fehlgeschlagener Prüfung, damit
+    // erfolgreiche Logins kein Kontingent verbrennen.
+    const ip = request.headers.get("cf-connecting-ip") ?? "unbekannt";
+    const emailLimit = await checkLimit(env, `login:${email}`, 10, 5 * 60 * 1000);
+    const ipLimit = await checkLimit(env, `login-ip:${ip}`, 30, 5 * 60 * 1000);
+    if (!emailLimit.ok || !ipLimit.ok) {
+      const retryAfter = Math.max(emailLimit.retryAfterSec, ipLimit.retryAfterSec);
+      return json(
+        { error: "Zu viele Anmeldeversuche. Bitte in " + Math.ceil(retryAfter / 60) + " Minuten nochmal versuchen." },
+        429,
+        { "retry-after": String(retryAfter) }
+      );
+    }
     return json({ error: "E-Mail oder Passwort ist falsch." }, 401);
   }
 
