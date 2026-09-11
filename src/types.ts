@@ -4,7 +4,8 @@ export interface Env {
   /** Globaler Singleton für das Gemini-Freelimit (12 Anfragen/min). */
   RATE_LIMITER_DO: DurableObjectNamespace;
   ASSETS: Fetcher;
-  RECIPE_IMAGES: R2Bucket;
+  /** R2-Bucket für Rezept-Bilder; optional, damit ohne Bucket der Emoji-Fallback greift. */
+  RECIPE_IMAGES?: R2Bucket;
   /** Worker-Secret, siehe .dev.vars (lokal) bzw. `wrangler secret put` (Produktion). */
   GEMINI_API_KEY?: string;
   /** Gemini-Modellname; Default in src/recipes.ts, überschreibbar per Secret/Env. */

@@ -972,6 +972,8 @@ export async function handleGetRecipeImage(request: Request, env: Env, recipeId:
     return new Response("Nicht gefunden.", { status: 404 });
   }
 
+  if (!env.RECIPE_IMAGES) return new Response("Nicht gefunden.", { status: 404 });
+
   try {
     const obj = await env.RECIPE_IMAGES.get(row.bild_key);
     if (!obj) return new Response("Nicht gefunden.", { status: 404 });

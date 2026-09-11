@@ -28,10 +28,6 @@
 		{
 			"binding": "RECIPE_IMAGES",
 			"bucket_name": "buylist-recipe-images"
-		},
-		{
-			"bucket_name": "buylist-recipe-images",
-			"binding": "buylist_recipe_images"
 		}
 	],
 	"durable_objects": {
