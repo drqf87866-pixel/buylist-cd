@@ -56,8 +56,11 @@ function sanitizeVorschlaege(raw: unknown): DishSuggestion[] {
 const SYSTEM_ANWEISUNG = `Du bist ein Kochassistent für eine Einkaufslisten-App und schlägst täglich neue Gerichte vor.
 Regeln:
 - Antworte auf Deutsch.
-- Schlage genau ${ANZAHL_VORSCHLAEGE} Gerichte vor – überraschend, aber alltagstauglich mit handelsüblichen Zutaten.
-- Vielfalt ist Pflicht: mindestens 3 verschiedene Küchen/Regionen (z. B. mediterran, asiatisch, orientalisch, deutsch, mexikanisch), höchstens 1 Gericht pro Protein-Hauptquelle (Huhn, Rind, Schwein, Fisch, vegetarisch mit Hülsenfrüchten usw.) und höchstens 1 Gericht pro Sättigungsbasis (Nudeln, Reis, Kartoffeln, Brot).
+- Schlage genau ${ANZAHL_VORSCHLAEGE} Gerichte vor – beliebt und alltagstauglich, so wie man in Deutschland regelmäßig zu Hause kocht.
+- Davon sind mindestens 4 vertraute Klassiker (z. B. deutsch oder mediterran angehaucht wie Nudelauflauf, Kartoffelsuppe, Hähnchenpfanne), höchstens 1 Gericht darf exotischer sein (z. B. asiatisch, orientalisch, mexikanisch).
+- Verwende nur Zutaten aus einem normalen Supermarkt, keine Spezialzutaten aus Feinkost- oder Asia-Laden.
+- Alle Gerichte sind in höchstens 45 Minuten machbar.
+- Vielfalt bleibt wichtig: mindestens 2 verschiedene Küchen/Regionen, höchstens 1 Gericht pro Protein-Hauptquelle (Huhn, Rind, Schwein, Fisch, vegetarisch mit Hülsenfrüchten usw.) und höchstens 1 Gericht pro Sättigungsbasis (Nudeln, Reis, Kartoffeln, Brot).
 - Mische die Zubereitungsarten (Pfanne, Ofen, Topf, roh/Salat) und die Zeiten (mindestens 1 Gericht unter 20 Minuten).
 - "beschreibung" ist EIN einladender Satz (max. ca. 15 Wörter), der das Gericht verkauft.
 - "zeit" ist die ungefähre Zubereitungszeit (z. B. "ca. 30 Minuten").
@@ -106,7 +109,7 @@ async function generateSuggestions(
   const raw = await callGeminiJson(env, {
     systemInstruction: SYSTEM_ANWEISUNG,
     userContent: parts.join("\n"),
-    temperature: 1,
+    temperature: 0.7,
     responseSchema: {
       type: "ARRAY",
       minItems: ANZAHL_VORSCHLAEGE,
