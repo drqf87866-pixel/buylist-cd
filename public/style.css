@@ -1,30 +1,30 @@
 /* ============================================================
-   Buylist – „Markt & Papier"
+   Buylist – „Klarer Markt"
    Mobile-First: base = Handy (eine Hand, Daumen), ≥640px = zentrierte Spalte
    ============================================================ */
 
 :root {
   /* Farben */
-  --bg: #f7f3ea;          /* warmes Papier */
-  --surface: #fffdf7;     /* Karten & Zeilen */
-  --ink: #23281f;         /* warmes Near-Black, ~13:1 auf Papier */
-  --leaf: #1e7a46;        /* Akzent: Abhaken, Buttons */
-  --leaf-dark: #155c34;
-  --leaf-soft: #e3efe4;   /* grüne Tönung (Badges, Preview) */
-  --tomato: #c92a2a;      /* ausschließlich Löschen / Fehler */
-  --tomato-dark: #a31f1f;
-  --muted: #6b6a5e;
-  --border: #e6e0d1;
-  --ring: #8f8776;        /* Checkbox-Rahmen (≥3:1 auf Papier) */
+  --bg: #f4f6f8;          /* kühles Hellgrau */
+  --surface: #ffffff;     /* Karten & Zeilen */
+  --ink: #0f172a;         /* kühles Near-Black, ~15:1 auf bg */
+  --leaf: #059669;        /* Akzent: Abhaken, Buttons */
+  --leaf-dark: #047857;
+  --leaf-soft: #d1fae5;   /* grüne Tönung (Badges, Preview) */
+  --tomato: #dc2626;      /* ausschließlich Löschen / Fehler */
+  --tomato-dark: #b91c1c;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --ring: #64748b;        /* Checkbox-Rahmen (≥3:1 auf Weiß) */
 
   /* Form */
-  --radius: 16px;
-  --radius-sm: 12px;
+  --radius: 12px;
+  --radius-sm: 8px;
   --tap: 48px;
-  --shadow: 0 1px 2px rgba(35, 40, 31, 0.05), 0 4px 14px rgba(35, 40, 31, 0.05);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 
   /* Typografie */
-  --font-display: ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 
   /* Von JS aus visualViewport gesetzt (Soft-Tastatur), Default 0. */
@@ -98,7 +98,7 @@ body.has-addbar .container {
   min-height: var(--tap);
   padding: 10px 18px;
   border: none;
-  border-radius: 14px;
+  border-radius: 12px;
   font-size: 1rem;
   font-weight: 700;
   font-family: inherit;
@@ -152,13 +152,13 @@ body.has-addbar .container {
 }
 
 .input::placeholder {
-  color: #6f6757;
+  color: #94a3b8;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--leaf);
-  box-shadow: 0 0 0 3px rgba(30, 122, 70, 0.15);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.18);
 }
 
 .card {
@@ -207,7 +207,7 @@ body.has-addbar .container {
   position: sticky;
   top: 0;
   z-index: 30;
-  background: rgba(247, 243, 234, 0.92);
+  background: rgba(244, 246, 248, 0.92);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
@@ -252,7 +252,7 @@ body.has-addbar .container {
 }
 
 .icon-btn:active {
-  background: rgba(35, 40, 31, 0.07);
+  background: rgba(15, 23, 42, 0.07);
 }
 
 .logout-btn {
@@ -314,7 +314,7 @@ body.has-addbar .container {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #d99a26;
+  background: #d97706;
 }
 
 .status-dot.open {
@@ -355,7 +355,7 @@ body.has-addbar .container {
 }
 
 .list-chip:active {
-  background: rgba(35, 40, 31, 0.07);
+  background: rgba(15, 23, 42, 0.07);
 }
 
 .list-chip-label {
@@ -399,7 +399,7 @@ body.has-addbar .container {
 
 .tabs {
   display: flex;
-  background: #ece5d3;
+  background: #e2e8f0;
   border-radius: var(--radius-sm);
   padding: 4px;
   margin-bottom: 14px;
@@ -421,7 +421,7 @@ body.has-addbar .container {
 .tabs a.active {
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(35, 40, 31, 0.12);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 
 .magic-sent-icon {
@@ -466,14 +466,14 @@ body.has-addbar .container {
   padding: 10px 14px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: var(--shadow);
   text-decoration: none;
   color: inherit;
 }
 
 .list-row:active {
-  background: #f6f0e3;
+  background: #f1f5f9;
 }
 
 .list-row-icon {
@@ -614,7 +614,7 @@ body.has-addbar .container {
 
 .swipe-cell {
   position: relative;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .swipe-action {
@@ -624,7 +624,7 @@ body.has-addbar .container {
   bottom: 0;
   width: 88px;
   display: flex;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
   visibility: hidden; /* erst bei offengeschobener Zeile (.swiped) */
 }
@@ -668,7 +668,7 @@ body.has-addbar .container {
   padding: 7px 6px 7px 2px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: var(--shadow);
   transition: transform 0.2s ease, opacity 0.17s ease;
   touch-action: pan-y; /* vertikal scrollt die Liste, horizontal gehört dem Swipe */
@@ -735,7 +735,7 @@ body.has-addbar .container {
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--tomato);
-  background: #f6e3df;
+  background: #fee2e2;
 }
 
 /* Zeileninhalt */
@@ -809,7 +809,7 @@ body.has-addbar .container {
 /* Erledigt: gedämpfte Farben statt Transparenz (darunterliegende
    Löschen-Fläche dürfte nicht durchscheinen), rutscht in die Erledigt-Gruppe */
 .swipe-cell.done .swipe-content {
-  background: #f4eede;
+  background: #f1f5f9;
 }
 
 .swipe-cell.done .item-name {
@@ -817,7 +817,7 @@ body.has-addbar .container {
 }
 
 .swipe-cell.done .item-meta {
-  color: #5c5a4e;
+  color: #64748b;
 }
 
 .swipe-cell.pending .swipe-content {
@@ -1075,7 +1075,7 @@ body.has-addbar .container {
   z-index: 20;
   display: flex;
   gap: 8px;
-  background: rgba(255, 253, 247, 0.96);
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
@@ -1094,7 +1094,7 @@ body.has-addbar .container {
   flex: 0 0 52px;
   min-height: 52px;
   padding: 0;
-  border-radius: 16px;
+  border-radius: 12px;
   font-size: 1.7rem;
   font-weight: 600;
 }
@@ -1108,7 +1108,7 @@ body.has-addbar .container {
   right: 0;
   z-index: 25;
   display: flex;
-  background: rgba(255, 253, 247, 0.96);
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
@@ -1130,7 +1130,7 @@ body.has-addbar .container {
 }
 
 .bottom-nav-item:active {
-  background: rgba(35, 40, 31, 0.07);
+  background: rgba(15, 23, 42, 0.07);
 }
 
 .bottom-nav-icon {
@@ -1168,7 +1168,7 @@ body.has-nav .container {
   align-items: center;
   justify-content: center;
   background: var(--leaf-soft);
-  border-radius: 14px;
+  border-radius: 12px;
   font-size: 1.4rem;
 }
 
@@ -1262,7 +1262,7 @@ body.has-nav .container {
 
 .assistant-tabs {
   display: flex;
-  background: #ece5d3;
+  background: #e2e8f0;
   border-radius: var(--radius-sm);
   padding: 4px;
   gap: 4px;
@@ -1288,7 +1288,7 @@ body.has-nav .container {
 .assistant-tab.active {
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(35, 40, 31, 0.12);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 
 .assistant-mode[hidden] {
@@ -1344,7 +1344,7 @@ body.has-nav .container {
   max-width: 100%;
   min-height: 44px;
   padding: 4px 6px 4px 12px;
-  border: 1px solid #bcd8c2;
+  border: 1px solid #a7f3d0;
   border-radius: 999px;
   background: var(--leaf-soft);
   color: var(--leaf-dark);
@@ -1369,7 +1369,7 @@ body.has-nav .container {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(21, 92, 52, 0.14);
+  background: rgba(5, 150, 105, 0.14);
   color: var(--leaf-dark);
   font-size: 0.78rem;
   font-weight: 800;
@@ -1450,7 +1450,7 @@ body.has-nav .container {
 }
 
 .markt-chip.on {
-  border-color: #bcd8c2;
+  border-color: #a7f3d0;
   background: var(--leaf-soft);
   color: var(--leaf-dark);
 }
@@ -1533,7 +1533,7 @@ body.has-nav .container {
 
 /* KI-Ideen tragen denselben grünen Ton wie die Rezept-Vorschau */
 .suggestion-card {
-  border-color: #bcd8c2;
+  border-color: #a7f3d0;
   background: var(--leaf-soft);
 }
 
@@ -1631,7 +1631,7 @@ body.has-nav .container {
 }
 
 .recipe-card.preview {
-  border-color: #bcd8c2;
+  border-color: #a7f3d0;
   background: var(--leaf-soft);
 }
 
@@ -1731,7 +1731,7 @@ body.has-nav .container {
 }
 
 .ing-row:active {
-  background: rgba(35, 40, 31, 0.05);
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .ing-row-check {
@@ -1888,7 +1888,7 @@ body.has-nav .container {
 
 .recipe-del.armed {
   color: var(--tomato);
-  background: #f6e3df;
+  background: #fee2e2;
   padding: 0 10px;
 }
 
@@ -1916,7 +1916,7 @@ body.has-nav .container {
   overflow: hidden;
   cursor: pointer;
   padding: 0;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .recipe-tile:active {
@@ -2054,14 +2054,14 @@ body.has-nav .container {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(21, 92, 52, 0.3);
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.28);
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .fab:active {
   transform: scale(0.92);
-  box-shadow: 0 2px 8px rgba(21, 92, 52, 0.25);
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.22);
 }
 
 .list-error {
@@ -2074,7 +2074,7 @@ body.has-nav .container {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(35, 40, 31, 0.45);
+  background: rgba(15, 23, 42, 0.45);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -2128,7 +2128,7 @@ body.has-nav .container {
 }
 
 .sheet-close:active {
-  background: rgba(35, 40, 31, 0.07);
+  background: rgba(15, 23, 42, 0.07);
 }
 
 .sheet-handle {
@@ -2233,7 +2233,7 @@ body.has-nav .container {
   left: 50%;
   bottom: calc(104px + env(safe-area-inset-bottom) + var(--keyboard-inset));
   transform: translateX(-50%) translateY(12px);
-  background: #2b3026;
+  background: #0f172a;
   color: #fff;
   padding: 11px 18px;
   border-radius: 999px;
@@ -2258,7 +2258,7 @@ body.has-nav .container {
   border: none;
   border-radius: 999px;
   background: #fff;
-  color: #2b3026;
+  color: #0f172a;
   font: inherit;
   font-size: 0.85rem;
   font-weight: 700;
@@ -2266,7 +2266,7 @@ body.has-nav .container {
 }
 
 .toast-action:hover {
-  background: #e6e2d5;
+  background: #e2e8f0;
 }
 
 /* ---------- Offline-Banner ---------- */
@@ -2278,7 +2278,7 @@ body.has-nav .container {
   right: 0;
   z-index: 55;
   padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
-  background: #8a5a00;
+  background: #b45309;
   color: #fff;
   font-size: 0.85rem;
   font-weight: 600;
@@ -2296,7 +2296,7 @@ body.has-nav .container {
 }
 
 .qr-img {
-  border: 1px solid var(--border, #e0dccb);
+  border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;
   background: #fff;
 }
@@ -2325,7 +2325,7 @@ body.has-nav .container {
 }
 
 .progress-btn:active {
-  background: rgba(35, 40, 31, 0.07);
+  background: rgba(15, 23, 42, 0.07);
 }
 
 .sheet-sub {
@@ -2358,7 +2358,7 @@ body.has-nav .container {
   max-width: 100%;
   padding: 6px 14px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg);
   font-family: inherit;
   color: inherit;
@@ -2386,7 +2386,7 @@ body.has-nav .container {
 }
 
 .hist-chip.added {
-  border-color: #bcd8c2;
+  border-color: #a7f3d0;
   background: var(--leaf-soft);
 }
 
@@ -2498,7 +2498,7 @@ body.has-nav .container {
 }
 
 .cook-ing:active {
-  background: rgba(35, 40, 31, 0.05);
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .cook-ing-dot {
@@ -2607,7 +2607,7 @@ body.has-nav .container {
 }
 
 .cook-timer.running {
-  border-color: #bcd8c2;
+  border-color: #a7f3d0;
   background: var(--leaf-soft);
   color: var(--leaf-dark);
   animation: pulse 1.2s infinite;
@@ -2742,7 +2742,7 @@ body.has-nav .container {
 }
 
 .sheet-row-action.del-list.armed {
-  background: #f6e3df;
+  background: #fee2e2;
 }
 
 .del-list-hint {
@@ -2767,7 +2767,7 @@ body.has-nav .container {
   flex-shrink: 0;
   border: 0;
   background: none;
-  color: var(--muted, #888);
+  color: var(--muted, #64748b);
   font: inherit;
   font-size: 0.9rem;
   padding: 6px 10px;
@@ -2776,8 +2776,8 @@ body.has-nav .container {
 }
 
 .recurring-del.armed {
-  color: var(--danger, #c0392b);
-  background: rgba(192, 57, 43, 0.1);
+  color: var(--danger, #dc2626);
+  background: rgba(220, 38, 38, 0.1);
 }
 
 .recurring-form {
@@ -2854,7 +2854,7 @@ body.has-nav .container {
 .member-role.owner {
   color: var(--leaf-dark);
   background: var(--leaf-soft);
-  border-color: #bcd8c2;
+  border-color: #a7f3d0;
 }
 
 .member-action {

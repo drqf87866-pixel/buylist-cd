@@ -4,7 +4,7 @@
 // Shell-Caches (Cache-first, alte app.js) verworfen werden, sobald dieser
 // Service Worker aktiv wird. Kuenftige Deployments brauchen keinen Bump mehr:
 // die Shell wird unten stale-while-revalidate bedient.
-const SHELL_CACHE = "buylist-shell-v3";
+const SHELL_CACHE = "buylist-shell-v4";
 const SHELL_URLS = [
   "/",
   "/index.html",
