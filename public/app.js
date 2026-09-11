@@ -24,6 +24,7 @@
     formatItemMenge,
     coverFor,
     rezeptListenKurzform,
+    mergeEinkaufListen,
   } = window.BC;
 
   function mengeEl(menge, cls = "recipe-menge") {
@@ -125,6 +126,7 @@
   let listConn = null; // aktive WebSocket-Verbindung der Listen-Ansicht
   let currentListId = null; // Liste, zu der listConn gehört (für Undo-Absicherung)
   let closeActiveSwipe = null; // offene Swipe-Zelle der aktuellen Liste zumachen
+  let einkaufConns = []; // offene WebSocket-Verbindungen des Einkaufsmodus (eine pro scharfer Liste)
 
   // ---------- Helfer ----------
 
@@ -566,6 +568,7 @@
   function render() {
     if (!state.booted) return;
     leaveListView();
+    leaveEinkaufView();
     leaveCookView();
     removeFab();
     document.querySelectorAll(".sheet-backdrop").forEach((n) => n.remove());
@@ -606,6 +609,7 @@
     }
     if (path === "/rezepte") return renderRecipes();
     if (path === "/profil") return renderProfile();
+    if (path === "/einkauf") return renderEinkauf();
 
     let match = path.match(/^\/list\/([A-Za-z0-9-]+)$/);
     if (match) return renderList(match[1]);
@@ -1528,29 +1532,55 @@
       createBtn
     );
 
-    const header = tabTopbar("Meine Listen");
+    // ---------- Einkaufsmodus: Listen scharfschalten (nur dieses Gerät) ----------
+    const auswahl = new Set(leseEinkaufAuswahl());
+    let geladen = [];
+    const einkaufBtn = el("button", { class: "btn primary einkauf-cta", type: "button" });
 
-    $app.replaceChildren(
-      header,
-      el("p", { class: "greeting", text: `Hallo, ${state.user.displayName}! 👋` }),
-      el("h2", { class: "section-title", text: "Deine Listen" }),
-      listContainer,
-      el("h2", { class: "section-title", text: "Neue Liste" }),
-      createForm
-    );
+    function paintEinkaufCta() {
+      einkaufBtn.disabled = auswahl.size === 0;
+      einkaufBtn.textContent = auswahl.size ? `🛒 Einkaufen (${auswahl.size})` : "🛒 Einkaufen";
+    }
 
-    api("/api/lists")
-      .then((data) => {
-        listContainer.replaceChildren();
-        if (!data.lists.length) {
-          listContainer.append(el("p", { class: "muted empty", text: "Noch keine Liste – leg unten deine erste an!" }));
-          return;
-        }
-        for (const list of data.lists) {
-          listContainer.append(
+    einkaufBtn.addEventListener("click", () => {
+      if (!auswahl.size) return;
+      navigate(`/einkauf?listen=${[...auswahl].map(encodeURIComponent).join(",")}`);
+    });
+
+    function maleReihen() {
+      listContainer.replaceChildren();
+      if (!geladen.length) {
+        listContainer.append(el("p", { class: "muted empty", text: "Noch keine Liste – leg unten deine erste an!" }));
+        return;
+      }
+      for (const list of geladen) {
+        const aktiv = auswahl.has(list.id);
+        const check = el(
+          "button",
+          {
+            class: "checkbox" + (aktiv ? " checked" : ""),
+            type: "button",
+            "aria-pressed": String(aktiv),
+            "aria-label": `„${list.name}“ für den Einkauf scharfschalten`,
+          },
+          checkSvg()
+        );
+        check.addEventListener("click", () => {
+          if (auswahl.has(list.id)) auswahl.delete(list.id);
+          else auswahl.add(list.id);
+          speichereEinkaufAuswahl([...auswahl]);
+          check.classList.toggle("checked", auswahl.has(list.id));
+          check.setAttribute("aria-pressed", String(auswahl.has(list.id)));
+          paintEinkaufCta();
+        });
+        listContainer.append(
+          el(
+            "div",
+            { class: "list-row" },
+            check,
             el(
               "a",
-              { class: "list-row", "data-link": "", href: `/list/${list.id}` },
+              { class: "list-row-link", "data-link": "", href: `/list/${list.id}` },
               el("span", { class: "list-row-icon", "aria-hidden": "true", text: "🛒" }),
               el(
                 "span",
@@ -1563,8 +1593,65 @@
               ),
               el("span", { class: "chevron", "aria-hidden": "true", text: "›" })
             )
-          );
+          )
+        );
+      }
+    }
+
+    const alleBtn = el("button", { class: "btn", type: "button", text: "Alle" });
+    const keineBtn = el("button", { class: "btn", type: "button", text: "Keine" });
+    alleBtn.addEventListener("click", () => {
+      for (const list of geladen) auswahl.add(list.id);
+      speichereEinkaufAuswahl([...auswahl]);
+      maleReihen();
+      paintEinkaufCta();
+    });
+    keineBtn.addEventListener("click", () => {
+      auswahl.clear();
+      speichereEinkaufAuswahl([]);
+      maleReihen();
+      paintEinkaufCta();
+    });
+    paintEinkaufCta();
+
+    const einkaufCard = el(
+      "div",
+      { class: "card einkauf-card" },
+      el("p", { class: "einkauf-title", text: "🛒 Einkaufsmodus" }),
+      el("p", {
+        class: "muted einkauf-hint",
+        text: "Mehrere Listen scharfschalten – im Laden siehst du alles in einer Ansicht, Abhaken landet live in der richtigen Liste.",
+      }),
+      el("div", { class: "einkauf-actions" }, alleBtn, keineBtn, einkaufBtn)
+    );
+
+    const header = tabTopbar("Meine Listen");
+
+    $app.replaceChildren(
+      header,
+      el("p", { class: "greeting", text: `Hallo, ${state.user.displayName}! 👋` }),
+      einkaufCard,
+      el("h2", { class: "section-title", text: "Deine Listen" }),
+      listContainer,
+      el("h2", { class: "section-title", text: "Neue Liste" }),
+      createForm
+    );
+
+    api("/api/lists")
+      .then((data) => {
+        geladen = data.lists ?? [];
+        // Auswahl auf existierende Listen beschneiden (gelöscht/entfernt fällt raus).
+        const gueltig = new Set(geladen.map((list) => list.id));
+        let geaendert = false;
+        for (const id of [...auswahl]) {
+          if (!gueltig.has(id)) {
+            auswahl.delete(id);
+            geaendert = true;
+          }
         }
+        if (geaendert) speichereEinkaufAuswahl([...auswahl]);
+        maleReihen();
+        paintEinkaufCta();
       })
       .catch((err) => {
         if (err.status === 401) {
@@ -2195,6 +2282,38 @@
       clearTimeout(toastTimer);
       toastNode.classList.remove("show");
       toastNode.querySelector(".toast-action")?.remove();
+    }
+  }
+
+  // Einkaufsmodus: alle parallelen WS-Verbindungen schließen (eine pro
+  // scharfer Liste); reguläre Listen-Ansicht nutzt weiter listConn.
+  function leaveEinkaufView() {
+    for (const conn of einkaufConns) {
+      try {
+        conn.close();
+      } catch {
+        // schon zu
+      }
+    }
+    einkaufConns = [];
+  }
+
+  // Scharfgeschaltete Listen des Einkaufsmodus (nur dieses Gerät, localStorage).
+  function leseEinkaufAuswahl() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("bl-einkauf") ?? "null");
+      if (Array.isArray(raw)) return raw.filter((id) => typeof id === "string" && id);
+    } catch {
+      // kaputter Stand → keine Auswahl
+    }
+    return [];
+  }
+
+  function speichereEinkaufAuswahl(ids) {
+    try {
+      localStorage.setItem("bl-einkauf", JSON.stringify(ids));
+    } catch {
+      // Speichern ist optional
     }
   }
 
@@ -3821,6 +3940,317 @@
       },
     });
     currentListId = listId;
+
+    closeActiveSwipe = closeOpenSwipe;
+  }
+
+  // ---------- Einkaufsmodus: scharfe Listen in einer Ansicht einkaufen ----------
+  // Rein clientseitig: Snapshots laden, eine WS-Verbindung pro Liste öffnen,
+  // gruppiert nach Markt/Kategorie zeigen. Abhaken/Löschen schreibt über die
+  // jeweilige Verbindung live in die Herkunfts-Liste zurück (kein Backend-Umbau).
+
+  async function renderEinkauf() {
+    const params = new URLSearchParams(location.search);
+    const ausUrl = params.get("listen");
+    let ids = ausUrl
+      ? [...new Set(ausUrl.split(",").map((s) => s.trim()).filter(Boolean))].slice(0, 20)
+      : leseEinkaufAuswahl();
+    if (ausUrl) speichereEinkaufAuswahl(ids);
+
+    const statusDot = el("span", { class: "status-dot connecting" });
+    const statusText = el("span", { class: "status-text", text: "Verbinde…" });
+    const progressFill = el("div", { class: "progress-fill" });
+    const progressText = el("span", { class: "progress-text", text: "" });
+    const filterRow = el("div", { class: "markt-row" });
+    const itemsEl = el("ul", { class: "items" });
+    const emptyEl = el("p", { class: "muted empty", hidden: true });
+
+    const header = el(
+      "header",
+      { class: "topbar" },
+      el(
+        "div",
+        { class: "topbar-inner" },
+        el("a", { class: "icon-btn", "data-link": "", href: "/", "aria-label": "Zur Übersicht", text: "‹" }),
+        el("h1", { class: "topbar-title", text: "🛒 Einkauf" }),
+        el("span", { class: "icon-btn", style: "visibility:hidden", "aria-hidden": "true", text: "‹" })
+      ),
+      el(
+        "div",
+        { class: "topbar-meta" },
+        el("div", { class: "progress", "aria-hidden": "true" }, progressFill),
+        progressText,
+        el("span", { class: "status" }, statusDot, statusText)
+      )
+    );
+
+    const nurOffene = { value: false };
+    const nurOffeneBtn = el("button", {
+      class: "markt-chip",
+      type: "button",
+      "aria-pressed": "false",
+      text: "Nur offene",
+    });
+    nurOffeneBtn.addEventListener("click", () => {
+      nurOffene.value = !nurOffene.value;
+      nurOffeneBtn.classList.toggle("on", nurOffene.value);
+      nurOffeneBtn.setAttribute("aria-pressed", String(nurOffene.value));
+      refresh();
+    });
+
+    const beendenBtn = el("button", { class: "btn", type: "button", text: "Einkauf beenden" });
+    beendenBtn.addEventListener("click", () => navigate("/", { replace: true }));
+
+    $app.replaceChildren(
+      header,
+      el("div", { class: "einkauf-filter" }, filterRow, nurOffeneBtn),
+      itemsEl,
+      emptyEl,
+      el("div", { class: "einkauf-foot" }, beendenBtn)
+    );
+
+    const beitraege = new Map(); // listId -> { id, name, items }
+    const marktFilter = { value: null };
+    const connStatus = new Map(); // listId -> "connecting" | "open" | "reconnecting"
+    const connFuer = (listId) => einkaufConns.find((c) => c.listId === listId)?.conn;
+
+    function maleStatus() {
+      const werte = ids.map((id) => connStatus.get(id) ?? "connecting");
+      const alleOffen = werte.length > 0 && werte.every((s) => s === "open");
+      statusDot.className = `status-dot ${alleOffen ? "open" : werte.includes("reconnecting") ? "reconnecting" : "connecting"}`;
+      const n = werte.filter((s) => s === "open").length;
+      statusText.textContent = alleOffen ? "Live" : `Verbinde… (${n}/${werte.length})`;
+    }
+
+    function loescheEintrag(entry) {
+      const b = beitraege.get(entry.listId);
+      if (b) {
+        const idx = b.items.findIndex((i) => i.id === entry.id);
+        if (idx >= 0) b.items.splice(idx, 1);
+      }
+      connFuer(entry.listId)?.send({ type: "delete", itemId: entry.id });
+      refresh();
+    }
+
+    function maleZeile(entry) {
+      const li = el("li", { class: "swipe-cell" + (entry.erledigt ? " done" : "") });
+      const content = el("div", { class: "swipe-content" });
+      const checkbox = el(
+        "button",
+        {
+          class: "checkbox einkauf-check" + (entry.erledigt ? " checked" : ""),
+          type: "button",
+          "aria-pressed": String(entry.erledigt),
+          "aria-label": entry.erledigt
+            ? `„${entry.name}“ als offen markieren`
+            : `„${entry.name}“ als erledigt abhaken`,
+        },
+        checkSvg()
+      );
+      checkbox.addEventListener("click", () => {
+        const b = beitraege.get(entry.listId);
+        const ziel = b?.items.find((i) => i.id === entry.id);
+        if (!ziel) return;
+        ziel.erledigt = !ziel.erledigt; // optimistisch, der Server-Sync bestätigt
+        connFuer(entry.listId)?.send({ type: "toggle", itemId: entry.id, erledigt: ziel.erledigt });
+        refresh();
+      });
+      content.append(
+        checkbox,
+        el(
+          "div",
+          { class: "item-main" },
+          el("span", { class: "item-name", text: entry.name }),
+          el(
+            "span",
+            { class: "einkauf-meta" },
+            entry.menge ? el("span", { class: "item-menge", text: formatItemMenge(entry.menge) || entry.menge }) : null,
+            el("span", { class: "einkauf-herkunft", text: `📋 ${entry.listName}` })
+          )
+        ),
+        deleteButton({
+          cls: "delete-btn",
+          icon: "🗑",
+          caption: "",
+          confirmText: "Sicher?",
+          ariaLabel: `„${entry.name}“ löschen`,
+          onConfirm: () => loescheEintrag(entry),
+          oneTap: true,
+        })
+      );
+      li.append(
+        el(
+          "div",
+          { class: "swipe-action" },
+          deleteButton({
+            cls: "swipe-delete",
+            icon: "🗑",
+            caption: "Löschen",
+            confirmText: "Sicher?",
+            ariaLabel: `„${entry.name}“ löschen`,
+            onConfirm: () => loescheEintrag(entry),
+            oneTap: true,
+          })
+        ),
+        content
+      );
+      attachSwipe(li, content);
+      return li;
+    }
+
+    function maleFilterChips(maerkte) {
+      filterRow.replaceChildren();
+      const chip = (value, label) => {
+        const an = marktFilter.value === value;
+        const btn = el(
+          "button",
+          {
+            class: "markt-chip" + (an ? " on" : ""),
+            type: "button",
+            "aria-pressed": String(an),
+          },
+          el("span", { text: label })
+        );
+        btn.addEventListener("click", () => {
+          marktFilter.value = marktFilter.value === value ? null : value;
+          refresh();
+        });
+        filterRow.append(btn);
+      };
+      chip(null, "Alle");
+      for (const m of maerkte) chip(m.key, m.label);
+    }
+
+    function refresh() {
+      closeOpenSwipe();
+      const res = mergeEinkaufListen([...beitraege.values()], {
+        nurOffene: nurOffene.value,
+        marktFilter: marktFilter.value,
+        categoryData,
+      });
+      if (marktFilter.value !== null && !res.maerkte.some((m) => m.key === marktFilter.value)) {
+        marktFilter.value = null;
+      }
+      maleFilterChips(res.maerkte);
+
+      const frag = document.createDocumentFragment();
+      for (const gruppe of res.gruppen) {
+        frag.append(el("li", { class: "cat-divider" }, el("span", { class: "cat-label", text: `🛒 ${gruppe.markt}` })));
+        for (const kat of gruppe.kategorien) {
+          if (gruppe.kategorien.length > 1) {
+            frag.append(
+              el("li", { class: "cat-divider einkauf-kat" }, el("span", { class: "cat-label", text: categoryLabel(kat.id, categoryData) }))
+            );
+          }
+          for (const entry of kat.items) frag.append(maleZeile(entry));
+        }
+      }
+      itemsEl.replaceChildren(frag);
+
+      progressText.textContent = res.gesamt ? `${res.erledigt} von ${res.gesamt} erledigt` : "";
+      progressFill.style.width = res.gesamt ? `${Math.round((res.erledigt / res.gesamt) * 100)}%` : "0%";
+
+      const sichtbar = frag.childNodes.length > 0;
+      emptyEl.hidden = sichtbar;
+      if (!sichtbar) {
+        emptyEl.textContent = !res.gesamt
+          ? "Noch keine Artikel auf den scharfen Listen."
+          : nurOffene.value && res.offen === 0
+            ? "Alles erledigt! 🎉"
+            : "Kein Artikel für diesen Filter.";
+      }
+    }
+
+    if (!ids.length) {
+      statusDot.className = "status-dot open";
+      statusText.textContent = "Bereit";
+      emptyEl.hidden = false;
+      emptyEl.textContent = "Keine Liste scharfgeschaltet – wähle auf der Übersicht, was du einkaufen willst.";
+      itemsEl.replaceChildren(
+        el(
+          "li",
+          { class: "list-error" },
+          el("p", {}, el("a", { class: "btn primary", "data-link": "", href: "/", text: "Listen wählen" }))
+        )
+      );
+      return;
+    }
+
+    // 1. Namen auflösen (eine Anfrage für alle eigenen Listen).
+    let listen;
+    try {
+      listen = (await api("/api/lists")).lists ?? [];
+    } catch (err) {
+      if (err.status === 401) {
+        state.user = null;
+        navigate("/login", { replace: true });
+        return;
+      }
+      toast(err.message);
+      return;
+    }
+    const namen = new Map(listen.map((l) => [l.id, l.name]));
+    ids = ids.filter((id) => namen.has(id));
+    speichereEinkaufAuswahl(ids);
+    if (!ids.length) {
+      statusDot.className = "status-dot open";
+      statusText.textContent = "Bereit";
+      emptyEl.hidden = false;
+      emptyEl.textContent = "Diese Listen sind nicht mehr verfügbar.";
+      return;
+    }
+    for (const id of ids) beitraege.set(id, { id, name: namen.get(id), items: [] });
+
+    // 2. Snapshots parallel laden (je Liste auth-geprüft, 404 fällt einzeln raus).
+    const ergebnisse = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          return { id, ok: true, snap: await api(`/api/list/${id}/snapshot`) };
+        } catch (err) {
+          return { id, ok: false, fehler: err };
+        }
+      })
+    );
+    let zugriffVerloren = false;
+    for (const r of ergebnisse) {
+      if (r.ok) {
+        const b = beitraege.get(r.id);
+        b.items = r.snap.items ?? [];
+        if (r.snap.name) b.name = r.snap.name;
+      } else if (r.fehler?.status === 401) {
+        zugriffVerloren = true;
+      } else {
+        beitraege.delete(r.id);
+        toast(`„${namen.get(r.id)}“ ist nicht verfügbar.`);
+      }
+    }
+    if (zugriffVerloren) {
+      state.user = null;
+      navigate("/login", { replace: true });
+      return;
+    }
+    ids = ids.filter((id) => beitraege.has(id));
+    refresh();
+
+    // 3. Live-Updates: eine WS-Verbindung pro scharfer Liste.
+    for (const id of ids) {
+      connStatus.set(id, "connecting");
+      const conn = openListSocket(id, {
+        onSync(liste) {
+          const b = beitraege.get(id);
+          if (!b) return;
+          b.items = liste.items ?? [];
+          if (liste.name) b.name = liste.name;
+          refresh();
+        },
+        onStatus(status) {
+          connStatus.set(id, status);
+          maleStatus();
+        },
+      });
+      einkaufConns.push({ listId: id, conn });
+    }
+    maleStatus();
 
     closeActiveSwipe = closeOpenSwipe;
   }

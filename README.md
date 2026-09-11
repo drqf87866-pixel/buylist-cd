@@ -48,6 +48,12 @@ externen Dienste.
 - **Gerichte zuschalten**: Ein gespeichertes Gericht auf die Liste schalten
   legt seine Zutaten mit Herkunfts-Tag an; Abschalten nimmt die offenen
   Zutaten wieder weg, Gekauftes bleibt
+- **Einkaufsmodus**: Mehrere Listen pro Gerät scharfschalten und im Laden in
+  einer Sammelansicht einkaufen (`/einkauf`, auch per `?listen=id1,id2`
+  teilbar) – gruppiert nach Supermarkt und Kategorie, mit Fortschritt,
+  Markt-Filter und „Nur offene“. Abhaken/Löschen schreibt live in die
+  jeweilige Herkunfts-Liste zurück (eine WebSocket-Verbindung pro Liste,
+  kein Backend-Umbau)
 - **Tagesvorschläge**: 5 KI-Gerichte pro Nutzer und Tag, nachts vorgeneriert
   und jederzeit neu würfelbar. „Rezept erstellen“ bei einer Idee legt
   automatisch eine neue Liste mit dem Gerichtnamen an und zeigt Ladezustand

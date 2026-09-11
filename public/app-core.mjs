@@ -248,6 +248,71 @@ export function rezeptListenKurzform(titel) {
   return slice.trim();
 }
 
+/**
+ * Sammelansicht für den Einkaufsmodus: fasst die Items mehrerer scharfer
+ * Listen zu Markt-Gruppen mit Kategorie-Untergruppen zusammen. Jedes Item
+ * trägt danach seine Herkunft (listId/listName), damit Abhaken/Löschen an
+ * die richtige Herkunfts-Liste zurückgeschrieben werden kann.
+ * marktFilter: null = „Alle“, "" = „Ohne Markt“, sonst normKey des Marktes.
+ * offen/erledigt/gesamt zählen bewusst über ALLE Beiträge (stabiler
+ * Fortschritt, auch bei aktivem Filter); gruppen spiegeln die Filter wider.
+ */
+export function mergeEinkaufListen(beitraege, opts = {}) {
+  const { nurOffene = false, marktFilter = null, categoryData = [] } = opts;
+  const order = categoryOrder(categoryData);
+  const listen = Array.isArray(beitraege) ? beitraege : [];
+
+  const maerkte = new Map(); // normKey -> erste Schreibweise
+  let hatOhneMarkt = false;
+  let offen = 0;
+  let erledigt = 0;
+  for (const b of listen) {
+    for (const it of b.items ?? []) {
+      if (it.erledigt) erledigt++;
+      else offen++;
+      const m = it.supermarkt?.trim();
+      if (m) {
+        if (!maerkte.has(normKey(m))) maerkte.set(normKey(m), m);
+      } else {
+        hatOhneMarkt = true;
+      }
+    }
+  }
+
+  const marktReihe = [...maerkte.entries()]
+    .sort((a, b) => a[1].localeCompare(b[1], "de"))
+    .map(([key, label]) => ({ key, label }));
+  if (hatOhneMarkt) marktReihe.push({ key: "", label: "Ohne Markt" });
+
+  const gruppen = [];
+  for (const { key, label } of marktReihe) {
+    if (marktFilter !== null && marktFilter !== key) continue;
+    const katGruppen = new Map();
+    for (const b of listen) {
+      for (const it of b.items ?? []) {
+        if (normKey(it.supermarkt ?? "") !== key) continue;
+        if (nurOffene && it.erledigt) continue;
+        const katId = it.kategorie && order.includes(it.kategorie) ? it.kategorie : SONSTIGES;
+        if (!katGruppen.has(katId)) katGruppen.set(katId, []);
+        katGruppen.get(katId).push({ ...it, listId: b.id, listName: b.name });
+      }
+    }
+    if (!katGruppen.size) continue;
+    const kategorien = order
+      .filter((id) => katGruppen.has(id))
+      .map((id) => ({ id, items: katGruppen.get(id) }));
+    gruppen.push({ markt: label, kategorien });
+  }
+
+  return {
+    gruppen,
+    offen,
+    erledigt,
+    gesamt: offen + erledigt,
+    maerkte: marktReihe,
+  };
+}
+
 /** Food-Emoji pro Kategorie-Id für den Cover-Fallback. */
 const COVER_EMOJI = {
   "obst-gemuese": "🥗",
@@ -322,5 +387,6 @@ if (typeof window !== "undefined") {
     formatItemMenge,
     coverFor,
     rezeptListenKurzform,
+    mergeEinkaufListen,
   };
 }

@@ -20,6 +20,7 @@ import {
   composeMenge,
   formatItemMenge,
   rezeptListenKurzform,
+  mergeEinkaufListen,
 } from "../public/app-core.mjs";
 
 const categories = JSON.parse(
@@ -203,5 +204,84 @@ test("rezeptListenKurzform: lange Titel enden an der Wortgrenze bei ~40 Zeichen"
   const kurz = rezeptListenKurzform("Überbackener Blumenkohlauflauf mit Kartoffeln und Käsekruste");
   assert.ok(kurz.length <= 40);
   assert.equal(kurz, "Überbackener Blumenkohlauflauf");
+});
+
+// ---------- mergeEinkaufListen ----------
+
+const EINKAUF_BEITRAEGE = [
+  {
+    id: "liste-a",
+    name: "Wocheneinkauf",
+    items: [
+      { id: "a1", name: "Milch", menge: "1 Liter", kategorie: "molkerei", supermarkt: "Rewe", erledigt: false, timestamp: 3 },
+      { id: "a2", name: "Butter", kategorie: "molkerei", supermarkt: "Rewe", erledigt: true, timestamp: 1 },
+      { id: "a3", name: "Apfel", kategorie: "obst-gemuese", erledigt: false, timestamp: 2 },
+    ],
+  },
+  {
+    id: "liste-b",
+    name: "Getränke",
+    items: [
+      { id: "b1", name: "Wasser", kategorie: "getraenke", supermarkt: "rewe", erledigt: false, timestamp: 4 },
+      { id: "b2", name: "Klopapier", kategorie: "haushalt", supermarkt: "dm", erledigt: false, timestamp: 5 },
+    ],
+  },
+];
+
+test("mergeEinkaufListen: gruppiert nach Markt, trägt Herkunft, zählt stabil", () => {
+  const res = mergeEinkaufListen(EINKAUF_BEITRAEGE, { categoryData: categories });
+  assert.equal(res.offen, 4);
+  assert.equal(res.erledigt, 1);
+  assert.equal(res.gesamt, 5);
+  // Märkte alphabetisch, „Ohne Markt“ zuletzt; „Rewe“/„rewe“ fallen zusammen
+  assert.deepEqual(
+    res.maerkte.map((m) => m.label),
+    ["dm", "Rewe", "Ohne Markt"]
+  );
+  assert.deepEqual(
+    res.gruppen.map((g) => g.markt),
+    ["dm", "Rewe", "Ohne Markt"]
+  );
+  const rewe = res.gruppen.find((g) => g.markt === "Rewe");
+  assert.equal(rewe.kategorien.length, 2);
+  const milch = rewe.kategorien.flatMap((k) => k.items).find((i) => i.name === "Milch");
+  assert.equal(milch.listId, "liste-a");
+  assert.equal(milch.listName, "Wocheneinkauf");
+});
+
+test("mergeEinkaufListen: nurOffene blendet Erledigte aus, Zähler bleiben stabil", () => {
+  const res = mergeEinkaufListen(EINKAUF_BEITRAEGE, { nurOffene: true, categoryData: categories });
+  assert.equal(res.offen, 4);
+  assert.equal(res.erledigt, 1);
+  const alle = res.gruppen.flatMap((g) => g.kategorien.flatMap((k) => k.items));
+  assert.ok(alle.length === 4 && alle.every((i) => !i.erledigt));
+});
+
+test("mergeEinkaufListen: marktFilter schränkt Gruppen ein", () => {
+  const res = mergeEinkaufListen(EINKAUF_BEITRAEGE, { marktFilter: normKey("REWE"), categoryData: categories });
+  assert.deepEqual(
+    res.gruppen.map((g) => g.markt),
+    ["Rewe"]
+  );
+  const ohne = mergeEinkaufListen(EINKAUF_BEITRAEGE, { marktFilter: "", categoryData: categories });
+  assert.deepEqual(
+    ohne.gruppen.map((g) => g.markt),
+    ["Ohne Markt"]
+  );
+  assert.deepEqual(
+    ohne.gruppen[0].kategorien.flatMap((k) => k.items.map((i) => i.name)),
+    ["Apfel"]
+  );
+});
+
+test("mergeEinkaufListen: leere Beiträge liefern leere Gruppen und Null-Zähler", () => {
+  assert.deepEqual(mergeEinkaufListen([], { categoryData: categories }), {
+    gruppen: [],
+    offen: 0,
+    erledigt: 0,
+    gesamt: 0,
+    maerkte: [],
+  });
+  assert.deepEqual(mergeEinkaufListen(null, { categoryData: categories }).gruppen, []);
 });
 

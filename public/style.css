@@ -495,6 +495,93 @@ body.has-addbar .container {
   line-height: 1;
 }
 
+/* ---------- Einkaufsmodus: Listen scharfschalten + Sammelansicht ---------- */
+
+.list-row-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.einkauf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.einkauf-title {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.einkauf-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.einkauf-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.einkauf-cta {
+  flex: 1;
+}
+
+.einkauf-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.einkauf-filter .markt-row {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+.einkauf-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.einkauf-meta .item-menge {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.einkauf-herkunft {
+  font-weight: 600;
+}
+
+.einkauf-kat .cat-label {
+  font-size: 0.78rem;
+}
+
+/* Größeres Tap-Ziel für den Laden: gut mit einer Hand am Regal erreichbar. */
+.einkauf-check {
+  width: 52px;
+  height: 52px;
+  flex: none;
+}
+
+.einkauf-foot {
+  display: flex;
+  justify-content: center;
+  padding: 16px 14px 32px;
+}
+
 /* ---------- Artikelliste: Swipe-Zellen ---------- */
 
 .items {
