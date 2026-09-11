@@ -251,6 +251,10 @@
   function openSheet(build, { onClose } = {}) {
     const backdrop = el("div", { class: "sheet-backdrop" });
     const sheet = el("div", { class: "sheet", role: "dialog", "aria-modal": "true" });
+    // Inhalt in einem eigenen Container: so bleiben Schließen-Button und
+    // Wisch-Griff erhalten, auch wenn der Aufbau den Inhalt später ersetzt.
+    const content = el("div", { class: "sheet-content" });
+    sheet.append(content);
     const previouslyFocused = document.activeElement;
     let closed = false;
 
@@ -299,6 +303,7 @@
       closed = true;
       document.removeEventListener("keydown", onKey);
       setBackgroundHidden(false);
+      document.body.classList.remove("sheet-open");
       backdrop.classList.remove("open");
       sheet.classList.remove("open");
       setTimeout(() => backdrop.remove(), 220);
@@ -317,10 +322,50 @@
     backdrop.addEventListener("click", (event) => {
       if (event.target === backdrop) close();
     });
-    build(sheet, close);
+    build(content, close);
+
+    // Schließen-Button: Sheets sind mobil ohne sichtbare Schaltfläche nur über
+    // Backdrop/Esc zu schließen – das ist unübersichtlich.
+    sheet.append(el("button", { class: "sheet-close", type: "button", "aria-label": "Schließen", onclick: close, text: "✕" }));
+
+    // Swipe-down am Griff schließt das Sheet (nur wenn der Inhalt oben steht,
+    // sonst scrollt die Liste zuerst); ab ~100px Zug wird ausgelöst.
+    // Delegation über das Sheet, damit auch später eingesetzte Griffe greifen.
+    let startY = 0;
+    let dy = 0;
+    let dragging = false;
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      sheet.style.transition = "";
+      sheet.style.transform = "";
+      if (dy > 100) close();
+    };
+    sheet.addEventListener("pointerdown", (event) => {
+      const handle = event.target.closest?.(".sheet-handle");
+      if (!handle || event.button !== 0 || sheet.scrollTop > 0) return;
+      startY = event.clientY;
+      dy = 0;
+      dragging = true;
+      sheet.style.transition = "none";
+      try {
+        sheet.setPointerCapture(event.pointerId);
+      } catch {
+        // Fangen ist optional – Wischen funktioniert trotzdem
+      }
+    });
+    sheet.addEventListener("pointermove", (event) => {
+      if (!dragging) return;
+      dy = Math.max(0, event.clientY - startY);
+      sheet.style.transform = `translateY(${dy}px)`;
+    });
+    sheet.addEventListener("pointerup", endDrag);
+    sheet.addEventListener("pointercancel", endDrag);
+
     backdrop.append(sheet);
     document.body.append(backdrop);
     setBackgroundHidden(true);
+    document.body.classList.add("sheet-open");
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         backdrop.classList.add("open");
@@ -374,6 +419,22 @@
 
   // ---------- Router ----------
 
+  // Scrollposition je Route merken und nach dem (Re-)Rendern wiederherstellen –
+  // sonst springt die Back-Geste in einer langen Liste wieder nach oben.
+  const scrollPositions = new Map();
+  const scrollKey = () => location.pathname + location.search;
+  function restoreScroll() {
+    const y = scrollPositions.get(scrollKey());
+    window.scrollTo({ top: y || 0 });
+  }
+  window.addEventListener(
+    "scroll",
+    () => {
+      scrollPositions.set(scrollKey(), window.scrollY);
+    },
+    { passive: true }
+  );
+
   function navigate(path, { replace = false } = {}) {
     history[replace ? "replaceState" : "pushState"]({}, "", path);
     render();
@@ -396,14 +457,49 @@
   // (Einfügen/Auswählen) bleibt es aber erhalten.
   document.addEventListener("contextmenu", (event) => {
     const t = event.target;
-    if (t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea"))) return;
+    if (t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea, .item-name"))) return;
     event.preventDefault();
   });
 
   window.addEventListener("popstate", () => render());
 
+  // Öffnet auf dem Handy die Soft-Tastatur, schiebt sie fixierte Elemente
+  // unten (Add-Bar, Toast) nach oben bzw. verkleinert Sheets. visualViewport
+  // ist die einzige verlässliche Quelle (iOS); ohne API bleibt der Wert 0.
+  function initKeyboardInset() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--keyboard-inset", `${Math.round(inset)}px`);
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+  }
+
+  // Offline-Hinweis: Die Shell kommt zwar aus dem Cache, Änderungen gehen aber
+  // erst wieder raus, wenn die Verbindung steht – das soll sichtbar sein.
+  function initOfflineBanner() {
+    const banner = el("div", {
+      class: "offline-banner",
+      role: "status",
+      hidden: true,
+      text: "Offline – Änderungen gehen erst nach dem Verbinden raus.",
+    });
+    document.body.append(banner);
+    const paint = () => {
+      banner.hidden = navigator.onLine !== false;
+    };
+    window.addEventListener("online", paint);
+    window.addEventListener("offline", paint);
+    paint();
+  }
+
   async function boot() {
     await loadCategories();
+    initKeyboardInset();
+    initOfflineBanner();
     registerServiceWorker();
     try {
       const data = await api("/api/auth/me");
@@ -569,13 +665,36 @@
     }
   }
 
+  // Höhe der sticky Topbar als CSS-Var, damit Kategorie-Header genau darunter
+  // andocken – die Topbar ist je Ansicht unterschiedlich hoch (Safe-Area).
+  const headerObserver =
+    "ResizeObserver" in window
+      ? new ResizeObserver((entries) => {
+          const h = entries[0]?.target?.offsetHeight ?? 0;
+          document.documentElement.style.setProperty("--header-h", `${h}px`);
+        })
+      : null;
+  let observedHeader = null;
+  function observeHeader() {
+    const header = document.querySelector(".topbar");
+    if (observedHeader === header) return;
+    if (headerObserver && observedHeader) headerObserver.unobserve(observedHeader);
+    observedHeader = header;
+    if (headerObserver && header) headerObserver.observe(header);
+    document.documentElement.style.setProperty("--header-h", header ? `${header.offsetHeight}px` : "0px");
+  }
+
   function render() {
     if (!state.booted) return;
+    // Nach dem synchronen Aufbau des renderX() messen (rAF läuft danach).
+    requestAnimationFrame(observeHeader);
+    requestAnimationFrame(restoreScroll);
     leaveListView();
     leaveEinkaufView();
     leaveCookView();
     removeFab();
     document.querySelectorAll(".sheet-backdrop").forEach((n) => n.remove());
+    document.body.classList.remove("sheet-open");
 
     const path = location.pathname;
     document.body.classList.toggle("has-addbar", /^\/list\/[A-Za-z0-9-]+$/.test(path));
@@ -1465,35 +1584,63 @@
   function renderLists() {
     const listContainer = el("div", { class: "list-rows" }, el("p", { class: "muted empty", text: "Lade Listen…" }));
 
-    const nameInput = el("input", {
-      class: "input",
-      type: "text",
-      placeholder: "Name der neuen Liste (z. B. Wocheneinkauf)",
-      maxlength: "80",
-      required: true,
-    });
-    const createBtn = el("button", { class: "btn primary", type: "submit", text: "+ Liste erstellen" });
+    // Neue Liste über FAB + Sheet statt über ein Formular am Seitenende –
+    // so muss man bei vielen Listen nicht erst nach unten scrollen.
+    function openNewListSheet() {
+      openSheet((sheet, close) => {
+        const input = el("input", {
+          class: "input",
+          type: "text",
+          placeholder: "Name der neuen Liste (z. B. Wocheneinkauf)",
+          maxlength: "80",
+          "aria-label": "Name der neuen Liste",
+        });
+        const errEl = el("p", { class: "error", hidden: true });
+        const createBtn = el("button", { class: "btn primary", type: "submit", text: "+ Liste erstellen" });
+        const form = el(
+          "form",
+          {
+            class: "form",
+            onsubmit: async (event) => {
+              event.preventDefault();
+              const name = input.value.trim();
+              if (!name) {
+                input.focus();
+                return;
+              }
+              createBtn.disabled = true;
+              errEl.hidden = true;
+              try {
+                const data = await api("/api/lists", { body: { name } });
+                close();
+                navigate(`/list/${data.list.id}`);
+              } catch (err) {
+                errEl.textContent = err.message;
+                errEl.hidden = false;
+                createBtn.disabled = false;
+              }
+            },
+          },
+          input,
+          errEl,
+          createBtn
+        );
+        sheet.append(
+          el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+          el("h2", { class: "sheet-title", text: "Neue Liste" }),
+          el("div", { class: "sheet-pad" }, form)
+        );
+        input.focus({ preventScroll: true });
+      });
+    }
 
-    const createForm = el(
-      "form",
-      {
-        class: "card form",
-        onsubmit: async (event) => {
-          event.preventDefault();
-          if (!nameInput.value.trim()) return;
-          createBtn.disabled = true;
-          try {
-            const data = await api("/api/lists", { body: { name: nameInput.value } });
-            navigate(`/list/${data.list.id}`);
-          } catch (err) {
-            toast(err.message);
-            createBtn.disabled = false;
-          }
-        },
-      },
-      nameInput,
-      createBtn
-    );
+    const newListFab = el("button", {
+      class: "fab",
+      type: "button",
+      "aria-label": "Neue Liste erstellen",
+      text: "+",
+      onclick: openNewListSheet,
+    });
 
     // ---------- Einkaufsmodus: Listen scharfschalten (nur dieses Gerät) ----------
     const auswahl = new Set(leseEinkaufAuswahl());
@@ -1513,7 +1660,7 @@
     function maleReihen() {
       listContainer.replaceChildren();
       if (!geladen.length) {
-        listContainer.append(el("p", { class: "muted empty", text: "Noch keine Liste – leg unten deine erste an!" }));
+        listContainer.append(el("p", { class: "muted empty", text: "Noch keine Liste – tippe unten rechts auf +, um deine erste anzulegen." }));
         return;
       }
       for (const list of geladen) {
@@ -1595,10 +1742,9 @@
       el("p", { class: "greeting", text: `Hallo, ${state.user.displayName}! 👋` }),
       einkaufCard,
       el("h2", { class: "section-title", text: "Deine Listen" }),
-      listContainer,
-      el("h2", { class: "section-title", text: "Neue Liste" }),
-      createForm
+      listContainer
     );
+    document.body.append(newListFab);
 
     api("/api/lists")
       .then((data) => {
@@ -2437,6 +2583,7 @@
       placeholder: "Artikel, z. B. Milch 2l",
       maxlength: "280",
       autocomplete: "off",
+      autocapitalize: "sentences",
       enterkeyhint: "send",
     });
     const addBtn = el("button", { class: "btn primary add-btn", type: "submit", "aria-label": "Artikel hinzufügen", text: "+" });
@@ -2733,6 +2880,8 @@
       { statusDot, statusText, chipLabel, progressFill, progressText },
       { openMembersSheet, openListSwitcher, openHistorySheet }
     );
+    // Markt-Zeile in die sticky Topbar hängen, damit sie beim Scrollen bleibt.
+    header.append(marktRow);
 
     async function shareInvite() {
       try {
@@ -3613,7 +3762,7 @@
           input,
           el("div", { class: "sheet-actions" }, confirmBtn)
         );
-        input.focus();
+        input.focus({ preventScroll: true });
       });
     }
 
@@ -3805,7 +3954,7 @@
 
     // ---------- Anzeigen ----------
 
-    $app.replaceChildren(header, gerichteWrap, marktRow, itemsEl, emptyEl, addForm);
+    $app.replaceChildren(header, gerichteWrap, itemsEl, emptyEl, addForm);
 
     // Home-Screen-Shortcut „Schnell hinzufügen“: Add-Bar fokussieren und die
     // Query sauber entfernen, damit ein Reload nicht erneut fokussiert.
@@ -3855,6 +4004,7 @@
       aktiveGerichte.push(...(snapshot.aktiveGerichte ?? []));
       renderGerichteChips();
       refresh();
+      requestAnimationFrame(restoreScroll);
     } catch (err) {
       if (err.status === 404) {
         toast("Liste nicht gefunden.");
@@ -3884,6 +4034,17 @@
     currentListId = listId;
 
     closeActiveSwipe = closeOpenSwipe;
+
+    // Einmaliger Hinweis, damit die Wisch-Geste (bzw. der Löschen-Button)
+    // überhaupt entdeckt wird.
+    if (!localStorage.getItem("bl-swipe-hint")) {
+      try {
+        localStorage.setItem("bl-swipe-hint", "1");
+      } catch {
+        // Speichern ist optional
+      }
+      toast("Tipp: Wische einen Artikel nach links zum Löschen.");
+    }
   }
 
   // ---------- Einkaufsmodus: scharfe Listen in einer Ansicht einkaufen ----------
@@ -3943,13 +4104,11 @@
     const beendenBtn = el("button", { class: "btn", type: "button", text: "Einkauf beenden" });
     beendenBtn.addEventListener("click", () => navigate("/", { replace: true }));
 
-    $app.replaceChildren(
-      header,
-      el("div", { class: "einkauf-filter" }, filterRow, nurOffeneBtn),
-      itemsEl,
-      emptyEl,
-      el("div", { class: "einkauf-foot" }, beendenBtn)
-    );
+    // Filterzeile in die sticky Topbar hängen, damit Markt-Filter und
+    // „Nur offene“ im Laden immer erreichbar bleiben.
+    header.append(el("div", { class: "einkauf-filter" }, filterRow, nurOffeneBtn));
+
+    $app.replaceChildren(header, itemsEl, emptyEl, el("div", { class: "einkauf-foot" }, beendenBtn));
 
     const beitraege = new Map(); // listId -> { id, name, items }
     const marktFilter = { value: null };

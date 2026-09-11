@@ -18,7 +18,10 @@ externen Dienste.
    verbinden)
 6. **State bleibt erhalten**: Das Durable Object persistiert die Liste in
    DO-Storage, auch wenn alle Clients offline sind
-7. **Mobile-first UI**: große Tap-Ziele, sticky Add-Bar, Live-Statusanzeige
+7. **Mobile-first UI**: große Tap-Ziele (≥ 44 px), sticky Add-Bar,
+   Live-Statusanzeige, keyboard-bewusste Overlays, Bottom-Sheets mit
+   Schließen-Button und Wisch-Geste (Details unter
+   [UI/UX (Mobile)](#uiux-mobile))
 
 ## Weitere Features
 
@@ -66,8 +69,37 @@ externen Dienste.
   Rolle automatisch an das früheste verbleibende Mitglied – als letztes
   Mitglied löscht das Verlassen die Liste; der Owner kann sie jederzeit löschen
 - **PWA + Offline**: installierbar (Manifest inkl. Shortcuts), App-Shell wird
-  gecacht
+  gecacht; ein Banner macht sichtbar, wenn das Gerät offline ist und
+  Änderungen erst nach dem Verbinden rausgehen
 - **Web Push**: Benachrichtigungen bei Listen-Änderungen (VAPID, siehe Setup)
+
+## UI/UX (Mobile)
+
+Die Oberfläche ist mobile-first gebaut (eine Hand, Daumen, Safe-Areas):
+
+- **Keyboard-bewusst**: `visualViewport` setzt `--keyboard-inset`; die fixierte
+  Add-Bar und Toasts weichen der Soft-Tastatur nach oben, Bottom-Sheets
+  verkleinern sich entsprechend. Die Add-Bar hält den Fokus nach dem
+  Hinzufügen, damit man mehrere Artikel am Stück tippen kann.
+- **Bottom-Sheets**: eigener Schließen-Button, Wisch-nach-unten am Griff (ab
+  ~100 px) und Backdrop-Tap schließen; der Hintergrund scrollt währenddessen
+  nicht mit (`body.sheet-open`).
+- **Sichtbares Löschen**: Auf Touch-Geräten ist der Papierkorb dauerhaft
+  (leicht gedämpft) sichtbar; zusätzlich bleibt Wischen nach links als Geste.
+  Ein einmaliger Hinweis erklärt sie beim ersten Öffnen einer Liste.
+- **Sticky Orientierung**: Markt-Filter (Liste) und Einkaufsfilter bleiben in
+  der Topbar stehen; Kategorie- und „Erledigt“-Überschriften docken exakt
+  darunter an (`--header-h` per `ResizeObserver`), sodass lange Listen im Laden
+  lesbar bleiben.
+- **Neue Liste über FAB**: Der FAB `+` auf der Übersicht öffnet ein Sheet statt
+  eines Formulars am Seitenende.
+- **Scroll-Restoration**: Die Scrollposition wird je Route gemerkt und nach dem
+  Rendern wiederhergestellt (Back-Geste springt nicht nach oben).
+- **Bedienhinweise**: Artikelnamen lassen sich per Langdruck kopieren; die
+  Chip-Zeilen zeigen per Rand-Fade, dass weitere Einträge folgen.
+
+Dark Mode ist bewusst nicht umgesetzt – die App bleibt auf der hellen
+„Papier & Markt“-Palette (`color-scheme: light`).
 
 ## Architektur
 

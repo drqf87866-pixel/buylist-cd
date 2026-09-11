@@ -26,6 +26,9 @@
   /* Typografie */
   --font-display: ui-rounded, "SF Pro Rounded", -apple-system, "Segoe UI", system-ui, sans-serif;
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  /* Von JS aus visualViewport gesetzt (Soft-Tastatur), Default 0. */
+  --keyboard-inset: 0px;
 }
 
 * {
@@ -47,6 +50,11 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+}
+
+/* Solange ein Bottom-Sheet offen ist, darf der Hintergrund nicht mitscrollen. */
+body.sheet-open {
+  overflow: hidden;
 }
 
 h1,
@@ -75,11 +83,13 @@ p {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 body.has-addbar .container {
-  /* Platz für die fixierte Add-Bar unten */
-  padding-bottom: 158px;
+  /* Platz für die fixierte Add-Bar inkl. Home-Indikator */
+  padding-bottom: calc(158px + env(safe-area-inset-bottom));
 }
 
 /* ---------- Buttons & Eingaben ---------- */
@@ -142,7 +152,7 @@ body.has-addbar .container {
 }
 
 .input::placeholder {
-  color: #a29a88;
+  color: #6f6757;
 }
 
 .input:focus {
@@ -258,6 +268,15 @@ body.has-addbar .container {
   padding: 0 16px 10px;
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+/* Filter/Zusatzzeilen, die in die sticky Topbar eingehängt werden. */
+.topbar .markt-row {
+  padding-bottom: 8px;
+}
+
+.topbar .einkauf-filter {
+  padding-bottom: 10px;
 }
 
 /* Fortschritt */
@@ -690,6 +709,19 @@ body.has-addbar .container {
   }
 }
 
+/* Touch: Löschen-Button dauerhaft sichtbar (schwächer), damit die Aktion
+   ohne Wisch-Geste gefunden wird. */
+@media (hover: none) {
+  .delete-btn {
+    opacity: 0.4;
+    pointer-events: auto;
+  }
+
+  .delete-btn:active {
+    opacity: 1;
+  }
+}
+
 .delete-btn:focus-visible {
   opacity: 1;
   pointer-events: auto;
@@ -722,6 +754,10 @@ body.has-addbar .container {
   align-self: flex-start;
   max-width: 100%;
   overflow-wrap: anywhere;
+  /* Langdruck darf hier das native Menü öffnen (Text kopieren). */
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Der „Stift-Strich": nur bei erledigt; animiert nur beim frischen Abhaken */
@@ -781,7 +817,7 @@ body.has-addbar .container {
 }
 
 .swipe-cell.done .item-meta {
-  color: #9a937f;
+  color: #5c5a4e;
 }
 
 .swipe-cell.pending .swipe-content {
@@ -902,8 +938,12 @@ body.has-addbar .container {
 /* ---------- Kategorie-Abschnitte (rein lesend, feste Markt-Reihenfolge) ---------- */
 
 .cat-divider {
+  position: sticky;
+  top: var(--header-h, 0px);
+  z-index: 5;
   list-style: none;
-  padding: 16px 6px 0;
+  padding: 16px 6px 4px;
+  background: var(--bg);
 }
 
 .cat-divider:first-child {
@@ -921,12 +961,16 @@ body.has-addbar .container {
 /* ---------- Erledigt-Trenner ---------- */
 
 .done-divider {
+  position: sticky;
+  top: var(--header-h, 0px);
+  z-index: 5;
   list-style: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 16px 6px 0;
+  padding: 16px 6px 4px;
+  background: var(--bg);
 }
 
 .done-label {
@@ -1025,7 +1069,7 @@ body.has-addbar .container {
 
 .add-bar {
   position: fixed;
-  bottom: 0;
+  bottom: var(--keyboard-inset);
   left: 0;
   right: 0;
   z-index: 20;
@@ -1035,7 +1079,8 @@ body.has-addbar .container {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
-  padding: 10px max(12px, calc((100vw - 560px) / 2)) calc(12px + env(safe-area-inset-bottom));
+  padding: 10px max(12px, calc((100vw - 560px) / 2), env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom))
+    max(12px, calc((100vw - 560px) / 2), env(safe-area-inset-left));
 }
 
 .add-bar .input {
@@ -1067,7 +1112,8 @@ body.has-addbar .container {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
-  padding: 6px max(12px, calc((100vw - 560px) / 2)) max(env(safe-area-inset-bottom), 8px);
+  padding: 6px max(12px, calc((100vw - 560px) / 2), env(safe-area-inset-right))
+    max(env(safe-area-inset-bottom), 8px) max(12px, calc((100vw - 560px) / 2), env(safe-area-inset-left));
 }
 
 .bottom-nav-item {
@@ -1203,7 +1249,7 @@ body.has-nav .container {
 }
 
 .push-toggle {
-  min-height: 40px;
+  min-height: 44px;
   padding: 6px 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -1282,6 +1328,8 @@ body.has-nav .container {
   overflow-x: auto;
   padding: 10px 20px 2px;
   scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
 }
 
 .gericht-chips::-webkit-scrollbar {
@@ -1294,7 +1342,7 @@ body.has-nav .container {
   gap: 6px;
   flex: none;
   max-width: 100%;
-  min-height: 34px;
+  min-height: 44px;
   padding: 4px 6px 4px 12px;
   border: 1px solid #bcd8c2;
   border-radius: 999px;
@@ -1316,8 +1364,8 @@ body.has-nav .container {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -1338,6 +1386,9 @@ body.has-nav .container {
   padding: 8px 20px 0;
   overflow-x: auto;
   scrollbar-width: none;
+  /* Rechter Rand verblasst, damit sichtbar ist, dass mehr Chips folgen. */
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
 }
 
 .markt-row::-webkit-scrollbar {
@@ -1349,7 +1400,7 @@ body.has-nav .container {
   align-items: center;
   gap: 5px;
   flex: none;
-  min-height: 34px;
+  min-height: 44px;
   padding: 4px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -1382,8 +1433,8 @@ body.has-nav .container {
   display: inline-flex;
   align-items: center;
   flex: none;
-  min-height: 30px;
-  padding: 3px 11px;
+  min-height: 44px;
+  padding: 3px 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg);
@@ -1885,7 +1936,7 @@ body.has-nav .container {
 .recipe-tile-emoji {
   font-size: 2.4rem;
   line-height: 1;
-  opacity: 0.5;
+  opacity: 0.62;
 }
 
 .recipe-tile-image {
@@ -1939,7 +1990,7 @@ body.has-nav .container {
 .recipe-sheet-hero-emoji {
   font-size: 4rem;
   line-height: 1;
-  opacity: 0.4;
+  opacity: 0.5;
 }
 
 .recipe-sheet-body {
@@ -2029,6 +2080,8 @@ body.has-nav .container {
   justify-content: center;
   opacity: 0;
   transition: opacity 0.2s ease;
+  /* Bei offener Tastatur rutscht das Sheet mit nach oben. */
+  padding-bottom: var(--keyboard-inset);
 }
 
 .sheet-backdrop.open {
@@ -2036,10 +2089,13 @@ body.has-nav .container {
 }
 
 .sheet {
+  position: relative;
   width: 100%;
   max-width: 560px;
-  max-height: 72vh;
+  max-height: min(72vh, calc(100dvh - var(--keyboard-inset) - 24px));
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: var(--surface);
   border-radius: 20px 20px 0 0;
   padding: 10px 0 calc(18px + env(safe-area-inset-bottom));
@@ -2051,19 +2107,50 @@ body.has-nav .container {
   transform: none;
 }
 
+.sheet-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sheet-close:active {
+  background: rgba(35, 40, 31, 0.07);
+}
+
 .sheet-handle {
   width: 40px;
   height: 4px;
   border-radius: 2px;
   background: var(--border);
   margin: 4px auto 10px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.sheet-handle:active {
+  cursor: grabbing;
 }
 
 .sheet-title {
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 1.05rem;
-  padding: 2px 20px 10px;
+  /* Rechts Platz für den Schließen-Button. */
+  padding: 2px 56px 10px 20px;
 }
 
 .sheet-list {
@@ -2144,7 +2231,7 @@ body.has-nav .container {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(104px + env(safe-area-inset-bottom));
+  bottom: calc(104px + env(safe-area-inset-bottom) + var(--keyboard-inset));
   transform: translateX(-50%) translateY(12px);
   background: #2b3026;
   color: #fff;
@@ -2180,6 +2267,22 @@ body.has-nav .container {
 
 .toast-action:hover {
   background: #e6e2d5;
+}
+
+/* ---------- Offline-Banner ---------- */
+
+.offline-banner {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  left: 0;
+  right: 0;
+  z-index: 55;
+  padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  background: #8a5a00;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
 }
 
 /* ---------- QR-Code im Mitglieder-Sheet ---------- */
@@ -2340,8 +2443,8 @@ body.has-nav .container {
 }
 
 .cook-portion-btn {
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2756,8 +2859,8 @@ body.has-nav .container {
 
 .member-action {
   flex: none;
-  min-width: 38px;
-  min-height: 38px;
+  min-width: 44px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
