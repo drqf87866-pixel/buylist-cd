@@ -24,6 +24,7 @@
     formatItemMenge,
     coverFor,
     rezeptListenKurzform,
+    listeNameFuerZutaten,
     mergeEinkaufListen,
   } = window.BC;
 
@@ -325,7 +326,10 @@
         backdrop.classList.add("open");
         sheet.classList.add("open");
         const first = focusables()[0];
-        if (first) first.focus();
+        // Fokus ohne Scrollen: sonst springt das Sheet zum ersten Button/Link
+        // (z. B. Rezept-Detail mitten ins Rezept) statt oben beim Bild zu starten.
+        if (first) first.focus({ preventScroll: true });
+        sheet.scrollTop = 0;
       })
     );
   }
@@ -864,36 +868,34 @@
 
   /**
    * Koch-Assistent (Gemini-Generierung + Vorschau + Speichern in der
-   * Gerichte-Sammlung). Ohne `lists` fest an `listId` gebunden (Listen-Ansicht);
-   * mit `lists` zeigt das Formular einen Auswahl für die Ziel-Liste (Startseite).
-   * `loadOpenItems(listId)` (optional, async) lädt die offenen Artikel einer
-   * Liste on demand (z. B. per Snapshot) – sie stehen im „Aus meinen Zutaten“-
-   * Modus als anwählbare Chips bereit.
+   * Gerichte-Sammlung). Ohne Listenauswahl: Für jede Generierung wird
+   * automatisch eine Liste angelegt (Titel aus den Eingaben) – sie trägt den
+   * Generate- und den Save-Aufruf und bleibt nach dem Speichern bestehen.
+   * Verwerfen oder Schließen ohne Speichern räumt sie best-effort wieder weg.
    * onSaved({ recipe, listId, listName, showSuccess }) läuft nach dem
    * erfolgreichen Speichern – wer showSuccess nicht nutzt, bekommt die
    * Standard-Leerung der Vorschau.
    */
-  function createRecipeAssistant({ listId, lists, onSaved, loadOpenItems }) {
-    let targetListId = listId ?? null;
-    let listNameOf = () => "";
+  function createRecipeAssistant({ onSaved }) {
+    // Frisch angelegte Auto-Liste (Generate-Kontext + Speicherort); ein
+    // Wiederholungsversuch nach fehlgeschlagener Generierung nutzt sie erneut.
+    let targetListId = null;
+    let targetListName = "";
+    // True, sobald die Vorschau gespeichert wurde – dann bleibt die Liste stehen.
+    let gespeichert = false;
 
-    let listSelect = null;
-    if (Array.isArray(lists) && lists.length) {
-      const last = localStorage.getItem("bl-last-list");
-      targetListId = lists.some((l) => l.id === last) ? last : lists[0].id;
-      const nameById = new Map(lists.map((l) => [l.id, l.name]));
-      listNameOf = (id) => nameById.get(id) ?? "";
-      listSelect = el(
-        "select",
-        { class: "input assistant-list", "aria-label": "Einkaufsliste" },
-        ...lists.map((l) => el("option", { value: l.id, text: `🛒 ${l.name}` }))
-      );
-      listSelect.value = targetListId;
-      listSelect.addEventListener("change", () => {
-        targetListId = listSelect.value;
-        selectedChips.clear();
-        if (modus === "zutaten") void rebuildChips();
-      });
+    // Ungespeicherte Auto-Liste best-effort löschen (z. B. Verwerfen oder
+    // Schließen ohne Speichern). Eine verwaiste leere Liste ist ärgerlich,
+    // aber kein Fehler für den Nutzer.
+    async function raeumeAutoListeWeg() {
+      const id = targetListId;
+      targetListId = null;
+      if (!id || gespeichert) return;
+      try {
+        await api(`/api/list/${id}`, { method: "DELETE" });
+      } catch {
+        // ignorieren
+      }
     }
 
     // Modus: "gericht" oder "zutaten" (Resteverwertung)
@@ -924,65 +926,14 @@
     });
     const generateBtn = el("button", { class: "btn primary", type: "submit", text: "Rezept erstellen" });
     const assistantError = el("p", { class: "error", hidden: true });
+    // Zeigt, welche Auto-Liste für die Generierung angelegt wurde.
+    const autoHinweis = el("p", { class: "muted assistant-auto", hidden: true });
     const previewEl = el("div", {});
-
-    // Zutaten-Chips aus den offenen Listeneinträgen – werden jedes Mal neu
-    // aufgebaut, wenn man in den „Meine Zutaten“-Modus wechselt (die Liste
-    // kann sich zwischenzeitlich geändert haben).
-    const selectedChips = new Set();
-    let chipsWrap = el("div", { class: "zutaten-chips" });
-    let chipsSeq = 0;
-
-    async function rebuildChips() {
-      chipsWrap.replaceChildren();
-      const seq = ++chipsSeq;
-      let source = [];
-      if (typeof loadOpenItems === "function") {
-        try {
-          const loaded = await loadOpenItems(targetListId);
-          if (Array.isArray(loaded)) source = loaded;
-        } catch {
-          // Fehler ignorieren – dann bleiben die Chips leer.
-        }
-      }
-      // Stale Antworten verwerfen, wenn zwischenzeitlich die Liste gewechselt
-      // wurde oder ein neuerer Aufruf läuft.
-      if (seq !== chipsSeq) return;
-      if (!Array.isArray(source) || !source.length) return;
-      const seen = new Set();
-      for (const item of source) {
-        const key = normKey(item.name);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const chip = el(
-          "button",
-          {
-            class: "chip" + (selectedChips.has(key) ? " on" : ""),
-            type: "button",
-            "aria-pressed": String(selectedChips.has(key)),
-          },
-          el("span", { class: "chip-name", text: item.name })
-        );
-        chip.addEventListener("click", () => {
-          if (selectedChips.has(key)) {
-            selectedChips.delete(key);
-            chip.classList.remove("on");
-            chip.setAttribute("aria-pressed", "false");
-          } else {
-            selectedChips.add(key);
-            chip.classList.add("on");
-            chip.setAttribute("aria-pressed", "true");
-          }
-        });
-        chipsWrap.append(chip);
-      }
-    }
 
     const gerichtWrap = el("div", { class: "assistant-row" }, gerichtInput, portionenInput);
     const zutatenWrap = el("div", { class: "assistant-mode zutaten-mode", hidden: true },
-      el("p", { class: "muted", text: "Was hast du noch im Schrank? Der Assistent macht ein Rezept daraus." }),
-      zutatenInput,
-      chipsWrap
+      el("p", { class: "muted", text: "Was hast du noch im Schrank? Tipp die Zutaten ein (mit Komma getrennt) – der Assistent macht ein Rezept daraus." }),
+      zutatenInput
     );
 
     function setModus(next) {
@@ -992,7 +943,6 @@
       for (const tab of form.querySelectorAll(".assistant-tab")) {
         tab.classList.toggle("active", tab.dataset.mode === next);
       }
-      if (next === "zutaten") void rebuildChips();
     }
 
     const tabGericht = el("button", { class: "assistant-tab active", type: "button", "data-mode": "gericht", text: "🍽 Gericht" });
@@ -1005,11 +955,7 @@
       previewEl.replaceChildren();
       gerichtInput.value = "";
       zutatenInput.value = "";
-      selectedChips.clear();
-      for (const chip of zutatenWrap.querySelectorAll(".chip")) {
-        chip.classList.remove("on");
-        chip.setAttribute("aria-pressed", "false");
-      }
+      autoHinweis.hidden = true;
     };
     const showSuccess = (...nodes) => previewEl.replaceChildren(...nodes);
 
@@ -1026,12 +972,13 @@
         saveBtn.disabled = true;
         try {
           const data = await api(`/api/list/${targetListId}/recipes`, { body: { ...recipe } });
+          gespeichert = true;
           toast("Gericht gespeichert");
           if (onSaved) {
             onSaved({
               recipe: data.rezept ?? recipe,
               listId: targetListId,
-              listName: listNameOf(targetListId),
+              listName: targetListName,
               showSuccess,
             });
           }
@@ -1046,7 +993,12 @@
         class: "btn ghost",
         type: "button",
         text: "Verwerfen",
-        onclick: () => previewEl.replaceChildren(),
+        onclick: async () => {
+          discardBtn.disabled = true;
+          await raeumeAutoListeWeg();
+          autoHinweis.hidden = true;
+          previewEl.replaceChildren();
+        },
       });
 
       previewEl.replaceChildren(
@@ -1076,49 +1028,57 @@
         onsubmit: async (event) => {
           event.preventDefault();
           const portionen = Number(portionenInput.value) || 2;
+          // Titel der Auto-Liste aus den Eingaben ableiten.
+          let gericht = null;
+          let zutaten = null;
+          let listenName = "";
           if (modus === "gericht") {
-            const gericht = gerichtInput.value.trim();
+            gericht = gerichtInput.value.trim();
             if (!gericht) {
               gerichtInput.focus();
               return;
             }
-            generateBtn.disabled = true;
-            generateBtn.textContent = "Rezept wird erstellt…";
-            assistantError.hidden = true;
-            try {
-              const data = await api(`/api/list/${targetListId}/generate`, {
-                body: { gericht, portionen },
-              });
-              showPreview(data.rezept);
-            } catch (err) {
-              assistantError.textContent = err.message;
-              assistantError.hidden = false;
-            } finally {
-              generateBtn.disabled = false;
-              generateBtn.textContent = "Rezept erstellen";
+            listenName = rezeptListenKurzform(gericht);
+          } else {
+            // Modus "zutaten": nur Freitext, mit Komma/Semikolon/Zeile getrennt.
+            zutaten = [];
+            for (const part of zutatenInput.value.split(/[,;\n]/)) {
+              const name = part.trim();
+              if (name && !zutaten.includes(name)) zutaten.push(name);
             }
-            return;
-          }
-          // Modus "zutaten": Chips + Freitext zusammenführen
-          const zutaten = [...selectedChips];
-          for (const part of zutatenInput.value.split(/[,;\n]/)) {
-            const name = part.trim();
-            if (name && !zutaten.includes(name)) zutaten.push(name);
-          }
-          if (!zutaten.length) {
-            zutatenInput.focus();
-            toast("Wähle Zutaten aus oder tippe sie unten ein.");
-            return;
+            if (!zutaten.length) {
+              zutatenInput.focus();
+              toast("Tippe deine Zutaten unten ein (mit Komma getrennt).");
+              return;
+            }
+            listenName = listeNameFuerZutaten(zutaten);
           }
           generateBtn.disabled = true;
           generateBtn.textContent = "Rezept wird erstellt…";
           assistantError.hidden = true;
+          autoHinweis.hidden = false;
           try {
+            // Frühere ungespeicherte Auto-Liste wegräumen, dann frisch anlegen.
+            await raeumeAutoListeWeg();
+            gespeichert = false;
+            autoHinweis.textContent = `Dafür wird die Liste „${listenName}“ angelegt…`;
+            const created = await api("/api/lists", { body: { name: listenName } });
+            targetListId = created.list.id;
+            targetListName = created.list.name ?? listenName;
+            autoHinweis.textContent = `Neue Liste: 🛒 ${targetListName}`;
             const data = await api(`/api/list/${targetListId}/generate`, {
-              body: { zutaten, portionen },
+              body: modus === "gericht" ? { gericht, portionen } : { zutaten, portionen },
             });
             showPreview(data.rezept);
           } catch (err) {
+            if (err.status === 401) {
+              state.user = null;
+              navigate("/login", { replace: true });
+              return;
+            }
+            // Fehlgeschlagene Anlage/Generierung: unbrauchbare Auto-Liste weg.
+            await raeumeAutoListeWeg();
+            autoHinweis.hidden = true;
             assistantError.textContent = err.message;
             assistantError.hidden = false;
           } finally {
@@ -1131,14 +1091,14 @@
       modeTabs,
       el("div", { class: "assistant-mode" }, gerichtWrap),
       zutatenWrap,
-      listSelect,
+      autoHinweis,
       generateBtn,
       assistantError
     );
 
     const assistantEl = el("div", { class: "assistant" }, form, previewEl);
 
-    return { el: assistantEl };
+    return { el: assistantEl, cleanup: raeumeAutoListeWeg };
   }
 
   /**
@@ -1452,7 +1412,7 @@
   }
 
   /** FAB (Floating Action Button) öffnet den Koch-Assistenten in einem Sheet. */
-  function createAssistantFab(lists, loadOpenItems, onSaved) {
+  function createAssistantFab(onSaved) {
     const fab = el("button", {
       class: "fab",
       type: "button",
@@ -1461,22 +1421,25 @@
     });
 
     fab.addEventListener("click", () => {
-      openSheet((sheet, close) => {
-        const assistant = createRecipeAssistant({
-          lists,
-          loadOpenItems,
-          onSaved: ({ recipe, listId }) => {
-            onSaved();
-            close();
-            toast("Gericht gespeichert");
-          },
-        });
+      let assistant = null;
+      openSheet(
+        (sheet, close) => {
+          assistant = createRecipeAssistant({
+            onSaved: ({ recipe, listId }) => {
+              onSaved();
+              close();
+              toast("Gericht gespeichert");
+            },
+          });
 
-        sheet.append(
-          el("div", { class: "sheet-handle", "aria-hidden": "true" }),
-          assistant.el
-        );
-      });
+          sheet.append(
+            el("div", { class: "sheet-handle", "aria-hidden": "true" }),
+            assistant.el
+          );
+        },
+        // Schließen ohne Speichern räumt die Auto-Liste wieder weg.
+        { onClose: () => void assistant?.cleanup() }
+      );
     });
 
     return fab;
@@ -1713,30 +1676,9 @@
 
       loadRecipes();
 
-      api("/api/lists")
-        .then((data) => {
-          if (!data.lists.length) {
-            return;
-          }
-
-          const loadOpenItems = async (id) => {
-            try {
-              const s = await api(`/api/list/${id}/snapshot`);
-              return (s.items ?? []).filter((i) => !i.erledigt);
-            } catch {
-              return [];
-            }
-          };
-
-          fab = createAssistantFab(data.lists, loadOpenItems, () => loadRecipes());
-          document.body.append(fab);
-        })
-        .catch((err) => {
-          if (err.status === 401) {
-            state.user = null;
-            navigate("/login", { replace: true });
-          }
-        });
+      // Der Assistent legt seine Liste automatisch an – kein Bestand nötig.
+      fab = createAssistantFab(() => loadRecipes());
+      document.body.append(fab);
 
       return el(
         "div",

@@ -1255,42 +1255,6 @@ body.has-nav .container {
   gap: 10px;
 }
 
-.zutaten-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.zutaten-chips:empty {
-  display: none;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
-  font-family: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.chip:active {
-  background: var(--leaf-soft);
-}
-
-.chip.on {
-  border-color: #bcd8c2;
-  background: var(--leaf-soft);
-  color: var(--leaf-dark);
-}
-
 .assistant-row {
   display: flex;
   gap: 8px;

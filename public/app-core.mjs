@@ -313,6 +313,20 @@ export function mergeEinkaufListen(beitraege, opts = {}) {
   };
 }
 
+/**
+ * Listentitel für den Koch-Assistenten im Zutaten-Modus: aus den eingetippten
+ * Zutaten abgeleitet (z. B. „Reste: Paprika, Reis, Hähnchen“), auf 80 Zeichen
+ * gekappt (Listen-Limit des Backends). Fallback, falls nichts übrig bleibt.
+ */
+export function listeNameFuerZutaten(zutaten) {
+  const namen = (Array.isArray(zutaten) ? zutaten : [])
+    .filter((z) => typeof z === "string")
+    .map((z) => z.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+  if (!namen.length) return "Reste-Rezept";
+  return `Reste: ${namen.join(", ")}`.slice(0, 80).trim() || "Reste-Rezept";
+}
+
 /** Food-Emoji pro Kategorie-Id für den Cover-Fallback. */
 const COVER_EMOJI = {
   "obst-gemuese": "🥗",
@@ -387,6 +401,7 @@ if (typeof window !== "undefined") {
     formatItemMenge,
     coverFor,
     rezeptListenKurzform,
+    listeNameFuerZutaten,
     mergeEinkaufListen,
   };
 }

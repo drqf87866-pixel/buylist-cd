@@ -20,6 +20,7 @@ import {
   composeMenge,
   formatItemMenge,
   rezeptListenKurzform,
+  listeNameFuerZutaten,
   mergeEinkaufListen,
 } from "../public/app-core.mjs";
 
@@ -204,6 +205,21 @@ test("rezeptListenKurzform: lange Titel enden an der Wortgrenze bei ~40 Zeichen"
   const kurz = rezeptListenKurzform("Überbackener Blumenkohlauflauf mit Kartoffeln und Käsekruste");
   assert.ok(kurz.length <= 40);
   assert.equal(kurz, "Überbackener Blumenkohlauflauf");
+});
+
+// ---------- listeNameFuerZutaten ----------
+
+test("listeNameFuerZutaten: leitet „Reste: …“ aus den Zutaten ab", () => {
+  assert.equal(listeNameFuerZutaten(["Paprika", "Reis", "Hähnchen"]), "Reste: Paprika, Reis, Hähnchen");
+  assert.equal(listeNameFuerZutaten(["  Milch  ", "", 42, null]), "Reste: Milch");
+});
+
+test("listeNameFuerZutaten: kappt auf 80 Zeichen, Fallback ohne Zutaten", () => {
+  const lang = listeNameFuerZutaten(["Dosentomaten", "Kidneybohnen", "Mais", "Paprika", "Zwiebeln", "Knoblauch", "Kreuzkümmel"]);
+  assert.ok(lang.length <= 80);
+  assert.ok(lang.startsWith("Reste: "));
+  assert.equal(listeNameFuerZutaten([]), "Reste-Rezept");
+  assert.equal(listeNameFuerZutaten(null), "Reste-Rezept");
 });
 
 // ---------- mergeEinkaufListen ----------
