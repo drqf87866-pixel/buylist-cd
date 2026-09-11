@@ -332,6 +332,11 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
+Hinweis: Jeder Push auf `main` deployt automatisch über die Cloudflare-Git-Integration –
+`npm run deploy` ist nur für manuelle Deploys nötig. D1-Migrationen laufen dabei NICHT
+automatisch mit: Nach einer neuen Migration in `migrations/` immer zuerst
+`npm run db:migrate:remote` (und lokal `npm run db:migrate:local`) ausführen.
+
 Beim ersten `wrangler deploy` werden die Durable-Object-Migrationen `v1` und `v2`
 (`new_sqlite_classes` für `ShoppingListDO` und `RateLimiterDO`) automatisch mit
 ausgerollt.
@@ -340,7 +345,7 @@ ausgerollt.
 
 ```
 ├── wrangler.jsonc              # Assets, R2, D1, DO-Bindings, Cron, DO-Migrationen
-├── migrations/                 # D1-Schema (0001_init … 0011_recipe_images)
+├── migrations/                 # D1-Schema (0001_init … 0012_email_verified)
 ├── src/
 │   ├── index.ts                # Router: /api/* + /media/* (Rezept-Bilder), WS-Upgrade, Cron
 │   ├── types.ts                # Env, Datenmodell, WS-Message-Typen

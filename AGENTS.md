@@ -23,6 +23,7 @@ npm test                       # unit tests (node:test)
 npm run db:migrate:local       # apply D1 schema to .wrangler/state
 node scripts/realtime-test.mjs # integration test, needs a running `npm run dev`
 npm run deploy                 # wrangler deploy
+# Push auf main = Auto-Deploy (Cloudflare-Git-Integration); D1-Migrationen NICHT inklusive – vorher npm run db:migrate:remote
 ```
 
 Local secrets live in **`.dev.vars`** (template: `.dev.vars.example`), *not* in
